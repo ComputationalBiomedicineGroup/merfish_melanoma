@@ -1,0 +1,233 @@
+---
+title: "Identify Fib Subtype"
+output: html_document
+date: "2025-03-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(Seurat)
+library(progress)
+library(deldir)
+library(tidyverse)
+library(Giotto)
+library(ggplot2)
+
+```
+
+```{r}
+TMA <- "TMA2"
+
+seurat <- readRDS(paste0("~/export/merfish2/merfish", TMA, "_annotated.rds"))
+
+seurat@meta.data <- seurat@meta.data[, -1]
+
+
+
+tma1_list <- list(
+  "TMA1_A2", "TMA1_A6", "TMA1_A7", "TMA1_A8", "TMA1_A10", "TMA1_A11",
+  "TMA1_B2", "TMA1_B4", "TMA1_B6", "TMA1_B7", "TMA1_B8", "TMA1_B9", "TMA1_B11",
+  "TMA1_C3", "TMA1_C7", "TMA1_C9", "TMA1_C15",
+  "TMA1_D3", "TMA1_D8", "TMA1_D9", "TMA1_D11", "TMA1_D15",
+  "TMA1_E8", "TMA1_E9", "TMA1_E10", "TMA1_E13", "TMA1_E14", "TMA1_E15",
+  "TMA1_F4", "TMA1_F9", "TMA1_F10", "TMA1_F13", "TMA1_F14",
+  "TMA1_G7", "TMA1_G8", "TMA1_G10", "TMA1_G12", "TMA1_G13",
+  "TMA1_H7", "TMA1_H8", "TMA1_H11", "TMA1_H14"
+)
+
+
+tma2_list <- list(
+  "TMA2_A2", "TMA2_B2",
+  "TMA2_A3", "TMA2_B3", "TMA2_C3", "TMA2_D3", "TMA2_E3", "TMA2_F3", "TMA2_G3", "TMA2_H3",
+  "TMA2_C4", "TMA2_D4", "TMA2_G4", "TMA2_H4",
+  "TMA2_B5", "TMA2_C5", "TMA2_D5", "TMA2_E5", "TMA2_F5", "TMA2_G5", "TMA2_H5",
+  "TMA2_A6", "TMA2_B6", "TMA2_C6", "TMA2_D6", "TMA2_E6", "TMA2_F6", "TMA2_G6",
+  "TMA2_C7", "TMA2_D7", "TMA2_E7", "TMA2_F7", "TMA2_H7",
+  "TMA2_A8", "TMA2_B8", "TMA2_C8", "TMA2_D8", "TMA2_E8", "TMA2_F8", "TMA2_G8", "TMA2_H8",
+  "TMA2_A9", "TMA2_B9", "TMA2_F9", "TMA2_G9", "TMA2_H9",
+  "TMA2_A10", "TMA2_B10", "TMA2_C10", "TMA2_E10", "TMA2_F10", "TMA2_G10", "TMA2_H10",
+  "TMA2_A11", "TMA2_B11", "TMA2_C11", "TMA2_D11", "TMA2_E11", "TMA2_F11",
+  "TMA2_E12", "TMA2_F12", "TMA2_G12", "TMA2_H12",
+  "TMA2_F13", "TMA2_G13", "TMA2_H13"
+)
+
+
+tma3_list <- list(
+  "TMA3_A3", "TMA3_A4", "TMA3_A7", "TMA3_A11",
+  "TMA3_B3", "TMA3_B4", "TMA3_B11",
+  "TMA3_C1", "TMA3_C2", "TMA3_C3", "TMA3_C4", "TMA3_C6", "TMA3_C9",
+  "TMA3_D1", "TMA3_D2", "TMA3_D3", "TMA3_D4", "TMA3_D6", "TMA3_D7",
+  "TMA3_E1", "TMA3_E2", "TMA3_E3", "TMA3_E4", "TMA3_E6", "TMA3_E11",
+  "TMA3_F1", "TMA3_F2", "TMA3_F3", "TMA3_F4", "TMA3_F9",
+  "TMA3_G1", "TMA3_G2", "TMA3_G3", "TMA3_G4", "TMA3_G5", "TMA3_G7", "TMA3_G10",
+  "TMA3_H1", "TMA3_H2", "TMA3_H3", "TMA3_H5", "TMA3_H10",
+  "TMA3_I2",
+  "TMA3_J2"
+)
+
+
+```
+
+```{r}
+expr_matrix <- GetAssayData(seurat, slot = "counts")
+
+spatial_coords <- as.data.frame(GetTissueCoordinates(seurat))
+colnames(spatial_coords) <- c("sdimy", "sdimx", "cell")
+spatial_coords <- spatial_coords[, c("sdimx", "sdimy", "cell")]
+
+cell_metadata <- seurat@meta.data
+
+giotto_obj <- createGiottoObject(raw_exprs = expr_matrix,
+                                 spatial_locs = spatial_coords,
+                                 cell_metadata = cell_metadata,
+                                 instructions = createGiottoInstructions())
+
+```
+
+```{r}
+fibroblast_types <- c("myFB & vSMC", "prol. FB & pericytes", "iCAF")
+endothelial_types <- c("LEC", "VEC cluster1", "VEC cluster2")
+
+get_fibroblast_ids_with_endothelial <- function(giotto_obj,
+                                                  cluster_column = "cell_type_level1",
+                                                  fibroblast_types,
+                                                  endothelial_types,
+                                                  cores) {
+  library(progress)
+  
+  total_iter <- 0
+  for(core in cores) {
+    core_cells <- pDataDT(giotto_obj) %>% filter(tumor_core == core)
+    fibroblast_cells <- core_cells %>% filter(!!sym(cluster_column) %in% fibroblast_types)
+    total_iter <- total_iter + nrow(fibroblast_cells)
+  }
+  
+  pb <- progress_bar$new(
+    total = total_iter,
+    format = "Processing fibroblast cells [:bar] :percent (:current/:total) | ETA: :eta",
+    width = 150
+  )
+  
+  fibroblast_ids_with_endothelial <- c()
+  
+  for(core in cores) {
+    # Subset cells for the current core
+    core_cells <- pDataDT(giotto_obj) %>% filter(tumor_core == core)
+    
+    fibroblast_cells <- core_cells %>% filter(!!sym(cluster_column) %in% fibroblast_types)
+    if(nrow(fibroblast_cells) == 0) next  
+    
+    # Subset the Giotto object to cells in the current core and create the spatial network
+    giotto_core <- subsetGiotto(giotto_obj, cell_ids = core_cells$cell_ID)
+    giotto_core <- createSpatialNetwork(giotto_core, minimum_k = 1)
+    
+    for(cell in fibroblast_cells$cell_ID) {
+      neighbors <- findNetworkNeighbors(giotto_core, spatial_network_name = "Delaunay_network", source_cell_ids = cell)
+      valid_neighbors <- neighbors %>% filter(nb_cells == "neighbor")
+      
+      # Get neighbor cell types using the cluster column
+      neighbor_types <- pDataDT(giotto_core) %>% 
+        filter(cell_ID %in% valid_neighbors$cell_ID) %>% 
+        pull(!!sym(cluster_column))
+      
+      if(any(neighbor_types %in% endothelial_types)) {
+        fibroblast_ids_with_endothelial <- c(fibroblast_ids_with_endothelial, cell)
+      }
+      
+      pb$tick()  
+    }
+  }
+  
+  return(unique(fibroblast_ids_with_endothelial))
+}
+
+
+highQCores <- read.table(paste0("~/export/merfish2/", TMA, "_high_quality_cores.txt"), stringsAsFactors = FALSE)$V1
+
+fibroblast_ids <- get_fibroblast_ids_with_endothelial(giotto_obj,
+                                                      cluster_column = "cell_type_level1",
+                                                      fibroblast_types = fibroblast_types,
+                                                      endothelial_types = endothelial_types,
+                                                      cores = tma2_list)
+
+output_file <- paste0("~/export/merfish2/fibroblast_with_endothelial_", TMA, ".txt")
+write.table(fibroblast_ids, file = output_file, 
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+print(fibroblast_ids)
+
+```
+
+
+
+
+```{r, fig.dpi=300}
+output_dir <- paste0("~/export/merfish2/niche_plots/", TMA)
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+for(core in tma2_list) {
+  
+  # Subset cells for the current core
+  core_cells <- pDataDT(giotto_obj) %>% filter(tumor_core == core)
+  
+  fibroblast_cells_in_core <- core_cells %>% 
+    filter(cell_type_level1 %in% fibroblast_types & cell_ID %in% fibroblast_ids)
+  
+  if(nrow(fibroblast_cells_in_core) == 0) {
+    cat("No fibroblast with endothelial neighbor found in core", core, "\n")
+    next
+  }
+  
+  sample_cell <- sample(fibroblast_cells_in_core$cell_ID, 1)
+  
+  cell_info <- pDataDT(giotto_obj) %>% filter(cell_ID == sample_cell)
+  core_id <- cell_info$tumor_core
+  
+  # Subset the Giotto object to cells in the current core and create the spatial network
+  giotto_core <- subsetGiotto(giotto_obj, cell_ids = core_cells$cell_ID)
+  giotto_core <- createSpatialNetwork(giotto_core, minimum_k = 1)
+  
+  # Retrieve immediate neighbors for the selected fibroblast cell using the Delaunay network
+  neighbors <- findNetworkNeighbors(giotto_core, spatial_network_name = "Delaunay_network", source_cell_ids = sample_cell)
+  valid_neighbors <- neighbors %>% filter(nb_cells == "neighbor")
+  
+  plot_data <- left_join(pDataDT(giotto_core), spatial_coords, by = c("cell_ID" = "cell")) %>% 
+    mutate(custom_color = case_when(
+      cell_type_level1 %in% fibroblast_types & cell_ID %in% fibroblast_ids ~ "green",
+      cell_type_level1 %in% fibroblast_types & !(cell_ID %in% fibroblast_ids) ~ "red",
+      cell_type_level1 %in% endothelial_types ~ "blue",
+      TRUE ~ "grey"
+    ))
+  
+  sample_data <- plot_data %>% filter(cell_ID == sample_cell)
+  neighbor_data <- plot_data %>% filter(cell_ID %in% valid_neighbors$cell_ID)
+  
+  niche_plot <- ggplot() +
+    geom_point(data = plot_data, aes(x = sdimx, y = sdimy, color = custom_color), size = 2) +
+    geom_point(data = neighbor_data, aes(x = sdimx, y = sdimy), shape = 21, color = "black", fill = NA, size = 3, stroke = 1) +
+    geom_point(data = sample_data, aes(x = sdimx, y = sdimy, fill = custom_color), shape = 21, color = "black", size = 4, stroke = 1) +
+    ggtitle(paste("Niche for fibroblast", sample_cell, "in core", core_id)) +
+    xlab("sdimx") +
+    ylab("sdimy") +
+    theme_minimal() +
+    scale_color_identity() + 
+    scale_fill_identity()
+  
+  print(niche_plot)
+  
+  ggsave(filename = paste0(output_dir, "/niche_plot_", sample_cell, "_", core_id, ".png"),
+         plot = niche_plot, width = 11, height = 10, dpi = 300, bg = "white")
+}
+
+```
+
+
+
+
