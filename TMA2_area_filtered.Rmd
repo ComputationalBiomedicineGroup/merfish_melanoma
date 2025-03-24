@@ -1,0 +1,161 @@
+---
+title: "Merscope Preprocessing"
+author: "Constantin Zackl"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, collapse=TRUE}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(Seurat)
+  library(dplyr)
+  library(magrittr)
+  library(BiocParallel)
+  library(progressr)
+  library(spatstat)  
+  library(sf)
+})
+```
+
+```{r}
+options(future.globals.maxSize = 5 * 1024^3) # 5 GB
+
+```
+
+
+```{r loading data, collapse=TRUE}
+start = Sys.time()
+data <- LoadVizgen(data.dir = "~/merfish/all_unzipped_files/", 
+                   fov="full", 
+                   assay = "Vizgen", 
+                   verbose = T, 
+                   metadata = c("volume", "fov"),
+                   z=3L, 
+                   use.BiocParallel=F, 
+                   workers.MulticoreParam = 20)
+end = Sys.time()
+
+print(end-start)
+```
+
+```{r parameters, collapse=TRUE}
+crop_parameters <- list(
+  list(name="A2", x=c(7600, 8450), y=c(1250, 2050)),
+  list(name="B2", x=c(6450, 7400), y=c(1400, 2200)),
+  list(name="A3", x=c(7600, 8550), y=c(2300, 3200)),
+  list(name="B3", x=c(6450, 7400), y=c(2400, 3250)),
+  list(name="C3", x=c(5500, 6450), y=c(2500, 3300)),
+  list(name="D3", x=c(4400, 5250), y=c(2300, 3250)),
+  list(name="E3", x=c(3200, 4250), y=c(2300, 3350)),
+  list(name="F3", x=c(2300, 3200), y=c(2300, 3350)),
+  list(name="G3", x=c(1300, 2300), y=c(2500, 3320)),
+  list(name="H3", x=c(0, 900), y=c(2500, 3350)),
+  list(name="C4", x=c(5500, 6450), y=c(3650, 4400)),
+  list(name="D4", x=c(4400, 5250), y=c(3650, 4400)),
+  list(name="G4", x=c(1250, 2100), y=c(3650, 4450)),
+  list(name="H4", x=c(0, 900), y=c(3650, 4450)),
+  list(name="B5", x=c(6600, 7500), y=c(4700, 5450)),
+  list(name="C5", x=c(5620, 6450), y=c(4500, 5550)),
+  list(name="D5", x=c(4400, 5300), y=c(4500, 5550)),
+  list(name="E5", x=c(3500, 4250), y=c(4800, 5600)),
+  list(name="F5", x=c(2200, 3150), y=c(4750, 5650)),
+  list(name="G5", x=c(1250, 2100), y=c(4500, 5550)),
+  list(name="H5", x=c(0, 900), y=c(4500, 5550)),
+  list(name="A6", x=c(7850, 8650), y=c(5700, 6450)), 
+  list(name="B6", x=c(6600, 7500), y=c(5750, 6650)),
+  list(name="C6", x=c(5600, 6450), y=c(6000, 6850)),
+  list(name="D6", x=c(4550, 5300), y=c(5950, 6850)),
+  list(name="E6", x=c(3530, 4300), y=c(5950, 6750)),
+  list(name="F6", x=c(2200, 3200), y=c(5950, 6750)),
+  list(name="G6", x=c(1200, 2100), y=c(5950, 6750)),
+  list(name="C7", x=c(5650, 6450), y=c(7000, 7800)),
+  list(name="D7", x=c(4550, 5300), y=c(7050, 7850)),
+  list(name="E7", x=c(3530, 4300), y=c(7100, 7900)),
+  list(name="F7", x=c(2200, 3200), y=c(7200, 8050)),
+  list(name="H7", x=c(0, 900), y=c(7400, 8200)),
+  list(name="A8", x=c(7850, 8700), y=c(8200, 8850)),
+  list(name="B8", x=c(6800, 7550), y=c(8200, 8900)),
+  list(name="C8", x=c(5650, 6550), y=c(8100, 9000)),
+  list(name="D8", x=c(4550, 5300), y=c(8250, 9050)),
+  list(name="E8", x=c(3530, 4300), y=c(8300, 9050)),
+  list(name="F8", x=c(2300, 3200), y=c(8300, 9100)),
+  list(name="G8", x=c(1250, 2100), y=c(8500, 9300)),
+  list(name="H8", x=c(0, 900), y=c(8600, 9400)),
+  list(name="A9", x=c(7850, 8700), y=c(9300, 10000)),
+  list(name="B9", x=c(6600, 7550), y=c(9350, 10100)),
+  list(name="F9", x=c(2350, 3200), y=c(9450, 10300)),
+  list(name="G9", x=c(1350, 2100), y=c(9700, 10450)),
+  list(name="H9", x=c(0, 1000), y=c(9750, 10500)),
+  list(name="A10", x=c(7850, 8700), y=c(10400, 11140)),
+  list(name="B10", x=c(6803, 7550), y=c(10500, 11250)),
+  list(name="C10", x=c(5650, 6550), y=c(10500, 11300)),
+  list(name="E10", x=c(3650, 4400), y=c(10500, 11350)),
+  list(name="F10", x=c(2350, 3200), y=c(10600, 11350)),
+  list(name="G10", x=c(1350, 2100), y=c(10800, 11450)),
+  list(name="H10", x=c(0, 1000), y=c(10900, 11650)),
+  list(name="A11", x=c(7850, 8700), y=c(11600, 12350)),
+  list(name="B11", x=c(6803, 7550), y=c(11600, 12350)),
+  list(name="C11", x=c(5800, 6650), y=c(11600, 12400)),
+  list(name="D11", x=c(4630, 5550), y=c(11600, 12400)),
+  list(name="E11", x=c(3650, 4500), y=c(11600, 12450)),
+  list(name="F11", x=c(2300, 3300), y=c(11750, 12500)),
+  list(name="E12", x=c(3800, 4600), y=c(12820, 13605)),
+  list(name="F12", x=c(2500, 3300), y=c(12820, 13500)),
+  list(name="G12", x=c(1500, 2400), y=c(12820, 13800)),
+  list(name="H12", x=c(0, 1200), y=c(13100, 13800)),
+  list(name="F13", x=c(2500, 3350), y=c(14100, 14850)),
+  list(name="G13", x=c(1650, 2400), y=c(14100, 14850)),
+  list(name="H13", x=c(0, 1250), y=c(14220, 14950)) 
+)
+```
+
+```{r}
+cores <- unlist(lapply(crop_parameters, function(param) param$name))
+```
+
+```{r cropping, collapse=TRUE}
+# Set FOV
+for (i in seq_along(crop_parameters)) {
+  suppressWarnings({
+    param <- crop_parameters[[i]]
+    data[[param$name]] <- Crop(data[["full"]], x = param$x, y = param$y, coords = "plot") # set FOV
+    DefaultBoundary(data[[param$name]]) <- "segmentation" # set boundary
+  })
+}
+```
+
+```{r remove unwanted cells}
+# remove cells not in cores
+cells_in_cores <- c()
+for (core in cores) {
+  cells_in_cores <- append(cells_in_cores, Cells(data[[core]]))
+}
+
+# subset
+suppressWarnings({
+  data <- data[, cells_in_cores]
+})
+```
+
+```{r preprocessing, collapse=TRUE}
+data = SCTransform(data, assay = "Vizgen", clip.range = c(-10, 10))
+data = RunPCA(data, npcs=50, features = rownames(data))
+data = RunUMAP(data, dim=1:50)
+data = FindNeighbors(data, dims = 1:50)
+data = FindClusters(data, resolution = 0.15)
+```
+
+```{r plots, fig.height=15, fig.width=15}
+DimPlot(data, raster = F, label = T)
+ImageDimPlot(data, fov = "full", group.by = "seurat_clusters", axes=T)
+```
+
+```{r save data}
+saveRDS(data, file = "~/export/merfish2/merfishTMA2_area_filtered.rds")
+```
+

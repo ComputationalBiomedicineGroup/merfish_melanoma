@@ -1,0 +1,241 @@
+---
+title: "Area Estimation TMA2"
+output: html_document
+---
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(Seurat)
+  library(dplyr)
+  library(magrittr)
+  library(BiocParallel)
+  library(progressr)
+  library(spatstat)
+  library(sf)
+  library(plotly)
+  library(dplyr)
+  library(tidyr)
+  library(EBImage)
+})
+
+library(VennDiagram)
+```
+```{r parameters, collapse=TRUE, include=FALSE}
+crop_parameters <- list(
+  list(name="A2", x=c(7600, 8450), y=c(1250, 2050)),
+  list(name="B2", x=c(6450, 7400), y=c(1400, 2200)),
+  list(name="C2", x=c(5500, 6300), y=c(1400, 2200)),
+  list(name="D2", x=c(4400, 5150), y=c(1400, 2200)),
+  list(name="G2", x=c(1300, 2300), y=c(1400, 2200)),
+  list(name="H2", x=c(0, 1000), y=c(1400, 2300)),
+  list(name="A3", x=c(7600, 8550), y=c(2300, 3200)),
+  list(name="B3", x=c(6450, 7400), y=c(2400, 3250)),
+  list(name="C3", x=c(5500, 6450), y=c(2500, 3300)),
+  list(name="D3", x=c(4400, 5250), y=c(2300, 3250)),
+  list(name="E3", x=c(3200, 4250), y=c(2300, 3350)),
+  list(name="F3", x=c(2300, 3200), y=c(2300, 3350)),
+  list(name="G3", x=c(1300, 2300), y=c(2500, 3320)),
+  list(name="H3", x=c(0, 900), y=c(2500, 3350)),
+  list(name="A4", x=c(7800, 8650), y=c(3500, 4250)),
+  list(name="B4", x=c(6500, 7400), y=c(3500, 4250)),
+  list(name="C4", x=c(5500, 6450), y=c(3650, 4400)),
+  list(name="D4", x=c(4400, 5250), y=c(3650, 4400)),
+  list(name="E4", x=c(3500, 4250), y=c(3650, 4400)),
+  list(name="F4", x=c(2300, 3200), y=c(3650, 4550)),
+  list(name="G4", x=c(1250, 2100), y=c(3650, 4450)),
+  list(name="H4", x=c(0, 900), y=c(3650, 4450)),
+  list(name="A5", x=c(7800, 8650), y=c(4500, 5400)),
+  list(name="B5", x=c(6600, 7500), y=c(4700, 5450)),
+  list(name="C5", x=c(5620, 6450), y=c(4500, 5550)),
+  list(name="D5", x=c(4400, 5300), y=c(4500, 5550)),
+  list(name="E5", x=c(3500, 4250), y=c(4800, 5600)),
+  list(name="F5", x=c(2200, 3150), y=c(4750, 5650)),
+  list(name="G5", x=c(1250, 2100), y=c(4500, 5550)),
+  list(name="H5", x=c(0, 900), y=c(4500, 5550)),
+  list(name="A6", x=c(7850, 8650), y=c(5700, 6450)),
+  list(name="B6", x=c(6600, 7500), y=c(5750, 6650)),
+  list(name="C6", x=c(5600, 6450), y=c(6000, 6850)),
+  list(name="D6", x=c(4550, 5300), y=c(5950, 6850)),
+  list(name="E6", x=c(3530, 4300), y=c(5950, 6750)),
+  list(name="F6", x=c(2200, 3200), y=c(5950, 6750)),
+  list(name="G6", x=c(1200, 2100), y=c(5950, 6750)),
+  list(name="H6", x=c(0, 900), y=c(5950, 6650)),
+  list(name="A7", x=c(7850, 8700), y=c(6900, 7650)),
+  list(name="B7", x=c(6600, 7450), y=c(6900, 7700)),
+  list(name="C7", x=c(5650, 6450), y=c(7000, 7800)),
+  list(name="D7", x=c(4550, 5300), y=c(7050, 7850)),
+  list(name="E7", x=c(3530, 4300), y=c(7100, 7900)),
+  list(name="F7", x=c(2200, 3200), y=c(7200, 8050)),
+  list(name="G7", x=c(1050, 2100), y=c(7000, 7700)),
+  list(name="H7", x=c(0, 900), y=c(7400, 8200)),
+  list(name="A8", x=c(7850, 8700), y=c(8200, 8850)),
+  list(name="B8", x=c(6800, 7550), y=c(8200, 8900)),
+  list(name="C8", x=c(5650, 6550), y=c(8100, 9000)),
+  list(name="D8", x=c(4550, 5300), y=c(8250, 9050)),
+  list(name="E8", x=c(3530, 4300), y=c(8300, 9050)),
+  list(name="F8", x=c(2300, 3200), y=c(8300, 9100)),
+  list(name="G8", x=c(1250, 2100), y=c(8500, 9300)),
+  list(name="H8", x=c(0, 900), y=c(8600, 9400)),
+  list(name="A9", x=c(7850, 8700), y=c(9300, 10000)),
+  list(name="B9", x=c(6600, 7550), y=c(9350, 10100)),
+  list(name="C9", x=c(5650, 6550), y=c(9350, 10100)),
+  list(name="D9", x=c(4630, 5450), y=c(9400, 10170)),
+  list(name="E9", x=c(3530, 4350), y=c(9400, 10170)),
+  list(name="F9", x=c(2350, 3200), y=c(9450, 10300)),
+  list(name="G9", x=c(1350, 2100), y=c(9700, 10450)),
+  list(name="H9", x=c(0, 1000), y=c(9750, 10500)),
+  list(name="A10", x=c(7850, 8700), y=c(10400, 11140)),
+  list(name="B10", x=c(6803, 7550), y=c(10500, 11250)),
+  list(name="C10", x=c(5650, 6550), y=c(10500, 11300)),
+  list(name="D10", x=c(4630, 5550), y=c(10500, 11300)),
+  list(name="E10", x=c(3650, 4400), y=c(10500, 11350)),
+  list(name="F10", x=c(2350, 3200), y=c(10600, 11350)),
+  list(name="G10", x=c(1350, 2100), y=c(10800, 11450)),
+  list(name="H10", x=c(0, 1000), y=c(10900, 11650)),
+  list(name="A11", x=c(7850, 8700), y=c(11600, 12350)),
+  list(name="B11", x=c(6803, 7550), y=c(11600, 12350)),
+  list(name="C11", x=c(5800, 6650), y=c(11600, 12400)),
+  list(name="D11", x=c(4630, 5550), y=c(11600, 12400)),
+  list(name="E11", x=c(3650, 4500), y=c(11600, 12450)),
+  list(name="F11", x=c(2300, 3300), y=c(11750, 12500)),
+  list(name="G11", x=c(1500, 2100), y=c(11800, 12420)),
+  list(name="H11", x=c(0, 1000), y=c(12000, 12600)),
+  list(name="E12", x=c(3800, 4600), y=c(12820, 13605)),
+  list(name="F12", x=c(2500, 3300), y=c(12820, 13500)),
+  list(name="G12", x=c(1500, 2400), y=c(12820, 13800)),
+  list(name="H12", x=c(0, 1200), y=c(13100, 13800)),
+  list(name="E13", x=c(3800, 4600), y=c(13900, 14600)),
+  list(name="F13", x=c(2500, 3350), y=c(14100, 14850)),
+  list(name="G13", x=c(1650, 2400), y=c(14100, 14850)),
+  list(name="H13", x=c(0, 1250), y=c(14220, 14950)),
+  list(name="G14", x=c(1650, 2400), y=c(15200, 16000))
+)
+```
+
+
+```{r collapse=TRUE, include=FALSE}
+cores <- unlist(lapply(crop_parameters, function(param) param$name))
+cores
+```
+
+ # Pixel Based Area Estimation
+ 
+```{r}
+results_df <- data.frame(ID = character(), Fraction = numeric(), stringsAsFactors = FALSE)
+
+process_image <- function(id) {
+  file_path <- paste0('~/export/merfish2/whiteTMA2/', id, '.png')
+  img <- readImage(file_path) 
+
+  # Convert to grayscale
+  img_gray <- channel(img, "gray")
+
+  # Binarize
+  img_bw <- img_gray > 0.5
+
+  # Calculate the white area
+  white_area <- sum(img_bw)
+  
+  total_pixels <- length(img_bw) # 5624830
+
+  # fraction of the image that is white
+  white_area_fraction <- (white_area / total_pixels) * 100
+
+  return(white_area_fraction)
+}
+
+# Loop over each ID
+for(id in cores) {
+  fraction <- process_image(id)
+  results_df <- rbind(results_df, data.frame(ID = id, Fraction = fraction))
+}
+
+print(results_df)
+```
+# Cores with Area Coverage below 50%
+```{r echo=FALSE}
+discard_pixel = results_df[results_df$Fraction<50, ]$ID
+discard_pixel
+```
+
+```{r echo=FALSE}
+plot(density(results_df$Fraction), main = "Fraction of Core Coverage, Pixel based")
+```
+
+# Cell based Area Estimation 
+
+
+```{r include=FALSE}
+data = readRDS("~/export/merfish2/merfishTMA2_all_except_wrong_tissue.rds")
+```
+
+```{r include=FALSE}
+max_cell_count = 0
+
+for (core in cores){
+  ncells = length(Cells(data[[core]]))
+  
+  if (ncells>max_cell_count){
+    max_cell_count = ncells
+  }
+}
+max_cell_count
+```
+
+```{r}
+
+results_df_counts <- data.frame(ID = character(), Fraction = numeric(), stringsAsFactors = FALSE)
+
+for (core in cores){
+  ncells = length(Cells(data[[core]]))
+  fraction = (ncells/max_cell_count) * 100
+  
+  
+  results_df_counts <- rbind(results_df_counts, data.frame(ID = core, Fraction=fraction))
+  
+}
+```
+# Cores with Cell Coverage below 50% 
+```{r}
+discard_cells = results_df_counts[results_df_counts$Fraction<50, ]$ID
+discard_cells
+```
+
+```{r include=FALSE}
+merged_df <- merge(results_df_counts, results_df, by = "ID")
+
+```
+
+# Agreement of both approaches
+
+```{r}
+ggplot(merged_df, aes(x = Fraction.x, y = Fraction.y)) +
+  geom_point() +
+  labs(x = "Fraction from Cell Count Estimate", 
+       y = "Fraction from Pixel Estimate",
+       title = "Scatter Plot of Fractions") +
+  theme_minimal() + 
+  geom_abline()
+```
+
+
+```{r echo=FALSE}
+# Elements in discard_pixel not in discard_cells
+unique_to_cores <- setdiff(discard_pixel, discard_cells)
+
+# Elements in discard_cells not in discard_pixel
+unique_to_other_cores <- setdiff(discard_cells, discard_pixel)
+
+# Elements common to both vectors
+common_elements <- intersect(discard_pixel, discard_cells)
+
+
+print(paste("Unique to Pixel Based Approach:", toString(unique_to_cores)))
+print(paste("Unique to Cell Based Approach:", toString(unique_to_other_cores)))
+print(paste("Common elements:", toString(common_elements)))
+```
+
