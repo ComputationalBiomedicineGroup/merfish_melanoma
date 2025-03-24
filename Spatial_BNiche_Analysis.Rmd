@@ -1,0 +1,366 @@
+---
+title: "Spatial Analysis"
+output: html_document
+date: "2025-01-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+library(dplyr)
+library(Seurat)
+library(progress)
+library(deldir)  
+library(tidyverse)
+library(Giotto)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+```
+
+
+```{r include=FALSE}
+
+
+TMA = "TMA3"
+seurat = readRDS(paste0("~/export/merfish2/merfish", TMA, "_annotated.rds"))
+seurat@meta.data <- seurat@meta.data[, -1]
+```
+
+
+
+```{r}
+highQCores <- read.table(paste0("~/export/merfish2/", TMA, "_high_quality_cores.txt"), stringsAsFactors = FALSE)$V1
+
+```
+
+```{r}
+seurat_filtered <- seurat@meta.data[seurat@meta.data$tumor_core %in% highQCores, ]
+
+b_lineage_percentage <- seurat_filtered %>%
+  dplyr::group_by(tumor_core) %>%
+  dplyr::summarize(
+    total_cells = n(),
+    b_lineage_cells = sum(cell_type_level0 == "B", na.rm = TRUE),
+    b_lineage_percentage = (b_lineage_cells / total_cells) * 100
+  ) %>%
+  dplyr::arrange(desc(b_lineage_percentage))  
+
+ordered_cores <- b_lineage_percentage$tumor_core
+
+print(ordered_cores)
+
+
+```
+
+
+```{r}
+high_quality_cells <- seurat@meta.data %>%
+  filter(tumor_core %in% highQCores) %>%
+  rownames()
+
+seurat <- subset(seurat, cells = high_quality_cells)
+
+```
+
+
+
+```{r include=FALSE}
+expr_matrix <- GetAssayData(seurat, slot = "counts")
+
+spatial_coords <- as.data.frame(GetTissueCoordinates(seurat))
+colnames(spatial_coords) <- c("sdimy", "sdimx", "cell") # rename to giotto colnames
+spatial_coords <- spatial_coords[, c("sdimx", "sdimy", "cell")] # reorder cols
+
+
+# Extract cell metadata
+cell_metadata <- seurat@meta.data
+
+# Create Giotto object
+giotto_obj <- createGiottoObject(raw_exprs = expr_matrix, 
+                                 spatial_locs = spatial_coords, 
+                                 cell_metadata = cell_metadata,
+                                 instructions = createGiottoInstructions())
+```
+
+```{r}
+library(tidyr)  
+
+analyze_b_cell_neighborhood <- function(giotto_obj, core_id, cluster_column, min_neighbors = 3) {
+  # get only cells from core
+  subset_cells <- pDataDT(giotto_obj) %>%
+    filter(tumor_core == core_id) %>%
+    pull(cell_ID)
+  
+  # Subset giotto object by these cells
+  giotto_subset <- subsetGiotto(giotto_obj, cell_ids = subset_cells)
+  
+  # Create Spatial Network
+  giotto_subset <- createSpatialNetwork(giotto_subset, minimum_k = min_neighbors)
+  
+  # Extract B cells
+  b_lineage_cells <- pDataDT(giotto_subset) %>%
+    filter(get(cluster_column) %in% c("B"))
+  
+  results <- list()
+  
+  # Loop over all B  cells
+  for (i in seq_len(nrow(b_lineage_cells))) {
+    cell_id <- b_lineage_cells$cell_ID[i]
+    
+    # Compute cells in the niche
+    neighbors <- findNetworkNeighbors(
+      giotto_subset,
+      spatial_network_name = "Delaunay_network",
+      source_cell_ids = cell_id
+    )
+    
+    # Get list of cells in the niche
+    valid_neighbors <- neighbors %>%
+      filter(nb_cells == "neighbor")  
+    
+    # Skip cells with fewer than min_neighbors
+    if (nrow(valid_neighbors) < min_neighbors) next
+    
+    # Get cell IDs of neighbors
+    niche <- valid_neighbors$cell_ID
+    
+    # Get composition of niche
+    niche_composition <- calculateNicheComposition(
+      giotto_subset,
+      cell_ids = niche,
+      cluster_column = cluster_column
+    )
+    
+    # Add cell ID to niche composition for reference
+    niche_composition <- niche_composition %>%
+      mutate(b_cell_id = cell_id)
+    
+    results[[cell_id]] <- niche_composition
+  }
+  
+  all_niches <- bind_rows(results)
+
+  wide_niches <- all_niches %>%
+    select(b_cell_id, cell_type = !!sym(cluster_column), percentage) %>%
+    pivot_wider(names_from = cell_type, values_from = percentage, values_fill = list(percentage = 0))
+  
+  return(wide_niches)
+}
+
+calculateNicheComposition <- function(giotto_obj, cell_ids, cluster_column) {
+  niche_metadata <- pDataDT(giotto_obj) %>%
+    filter(cell_ID %in% cell_ids)
+  composition <- niche_metadata %>%
+    count(!!sym(cluster_column)) %>%
+    mutate(percentage = n / sum(n) * 100)
+  return(composition)
+}
+
+
+```
+
+```{r}
+library(progress)
+
+analyze_all_cores <- function(giotto_obj, highQCores, cluster_column, min_neighbors = 3) {
+  
+  pb <- progress_bar$new(
+    format = "Processing [:bar] :percent (:current/:total) | ETA: :eta",
+    total = length(highQCores),
+    width = 60
+  )
+  
+  core_results <- list()
+  
+  for (core_id in highQCores) {
+    tryCatch({
+      print(core_id)
+      core_niche_data <- analyze_b_cell_neighborhood(
+        giotto_obj = giotto_obj,
+        core_id = core_id,
+        cluster_column = cluster_column,
+        min_neighbors = min_neighbors
+      )
+      
+      if (!is.null(core_niche_data) && nrow(core_niche_data) > 0) {
+        core_niche_data$tumor_core <- core_id  # Add core ID to the data
+        core_results[[core_id]] <- core_niche_data
+      }
+    }, error = function(e) {
+      message(sprintf("Error encountered in core %s: %s", core_id, e$message))
+    }, finally = {
+      pb$tick()
+    })
+  }
+
+  all_core_niches <- bind_rows(core_results) %>%
+    mutate(across(everything(), ~ replace_na(.x, 0)))
+
+
+  return(all_core_niches)
+}
+
+```
+
+
+```{r}
+b_cell_analysis1_all <- analyze_all_cores(
+  giotto_obj = giotto_obj,
+  highQCores = highQCores,
+  cluster_column = "cell_type_level1",
+  min_neighbors = 3
+)
+
+b_cell_analysis0_all <- analyze_all_cores(
+  giotto_obj = giotto_obj,
+  highQCores = highQCores,
+  cluster_column = "cell_type_level0",
+  min_neighbors = 3
+)
+
+b_cell_analysis2_all <- analyze_all_cores(
+  giotto_obj = giotto_obj,
+  highQCores = highQCores,
+  cluster_column = "cell_type_level2",
+  min_neighbors = 3
+)
+
+```
+
+
+```{r echo=FALSE, fig.height=20, fig.width=30}
+# level2
+colors_level2 <- c(
+  "T/NK"                      = "#356884",
+  "Mel"                       = "#5A3E28",
+  "VEC cluster2"              = "#ef3b2c",
+  "low qual"                  = "#CCCCCC",
+  "KC"                        = "#5F8F63",
+  "B"                         = "#30A79C",
+  "prol. Mel"                 = "#463320",
+  "DC/Macro"                  = "#884AB9",
+  "myFB & vSMC_dist"          = "#FCCA46",  
+  "prol. FB & pericytes_dist" = "#B86E3C",  
+  "unclassified"              = "#E7E7E7",
+  "iCAF_dist"                 = "#FE7F2D",  
+  "prol. FB & pericytes_atEC" = "#9D5C2F",  
+  "VEC cluster1"              = "#b2182b",
+  "LEC"                       = "#D86D70",
+  "myFB & vSMC_atEC"          = "#E3B417",  
+  "iCAF_atEC"                 = "#D96A1F"   
+)
+
+  
+# level1
+colors_level1 <- c(
+  "B"                    = "#30A79C",
+  "Mel"                  = "#5A3E28",
+  "prol. Mel"            = "#463320",
+  "KC"                   = "#5F8F63",
+  "T/NK"                 = "#356884",
+  "DC/Macro"             = "#884AB9",
+  "LEC"                  = "#D86D70",  
+  "VEC cluster1"         = "#b2182b",  
+  "VEC cluster2"         = "#ef3b2c",  
+  "prol. FB & pericytes" = "#B86E3C",
+  "myFB & vSMC"          = "#FCCA46",
+  "iCAF"                 = "#FE7F2D",
+  "low qual"             = "#CCCCCC",
+  "unclassified"         = "#E7E7E7"
+)
+
+
+
+
+# # level0
+colors_level0 <- c(
+  "B" = "#30A79C",
+  "Mel" = "#5A3E28",
+  "prol. Mel" = "#463320",
+  "KC" = "#5F8F63",
+  "T/NK" = "#356884",
+  "DC/Macro" = "#884AB9",
+  "LEC/VEC" = "#D86D70",
+  "FB" = "#FDA43A",
+  "low qual" = "#CCCCCC",
+  "unclassified" = "#E7E7E7"
+)
+
+
+
+```
+
+```{r}
+
+plot_stacked_barplot <- function(niche_data, colors, title, filename) {
+  
+  output_dir <- "~/export/merfish2/spatial_analysis"
+  
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  long_niche_data <- niche_data %>%
+    pivot_longer(cols = -c(b_cell_id, tumor_core), 
+                 names_to = "cell_type", 
+                 values_to = "percentage") %>%
+    group_by(tumor_core, cell_type) %>%
+    summarise(percentage = mean(percentage, na.rm = TRUE), .groups = "drop")  # Aggregate per core
+  
+  long_niche_data$cell_type <- factor(long_niche_data$cell_type, levels = names(colors))
+
+  long_niche_data$tumor_core <- factor(long_niche_data$tumor_core, levels = ordered_cores)
+
+  long_niche_data$tumor_core_clean <- str_remove(long_niche_data$tumor_core, "^TMA\\d+_")
+
+  p <- ggplot(long_niche_data, aes(x = factor(tumor_core_clean, levels = str_remove(ordered_cores, "^TMA\\d+_")), 
+                                   y = percentage, fill = cell_type)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = colors, breaks = names(colors)) +  
+    labs(title = title,
+         x = "Tumor Core",
+         y = "Niche Composition (%)",
+         fill = "Cell Type") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),  
+      legend.key.height = unit(0.6, "cm")  
+    )
+
+
+  ggsave(filename = file.path(output_dir, paste0(filename, ".png")), 
+         plot = p, width = 12, height = 6, dpi = 300, bg = "white")
+
+  print(p)
+}
+
+plot_stacked_barplot(
+  niche_data = b_cell_analysis1_all, 
+  colors = colors_level1, 
+  title = paste0("B-lineage Niche Composition (Level 1, ", TMA, ") per Core"),
+  filename = paste0("b_lineage_niche_", TMA, "_level1")
+)
+
+plot_stacked_barplot(
+  niche_data = b_cell_analysis0_all, 
+  colors = colors_level0, 
+  title = paste0("B-lineage Niche Composition (Level 0, ", TMA, ") per Core"),
+  filename = paste0("b_lineage_niche_", TMA, "_level0")
+)
+
+plot_stacked_barplot(
+  niche_data = b_cell_analysis2_all, 
+  colors = colors_level2, 
+  title = paste0("B-lineage Niche Composition (Level 2, ", TMA, ") per Core"),
+  filename = paste0("b_lineage_niche_", TMA, "_level2")
+)
+
+
+```
+
