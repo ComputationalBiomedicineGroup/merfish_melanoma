@@ -1,0 +1,66 @@
+---
+title: "FilterHQCores"
+output: html_document
+date: "2025-01-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+suppressPackageStartupMessages({
+  library(Giotto)
+  library(ggplot2)
+  library(dplyr)
+  library(magrittr)
+})
+
+TMA <- "TMA3"  
+
+seurat <- readRDS(paste0("~/export/merfish2/merfish", TMA, "_annotated.rds"))
+seurat@meta.data <- seurat@meta.data[, -1]
+
+```
+```{r}
+metadata <- seurat@meta.data
+
+annotated_counts <- table(metadata$tumor_core[!(metadata$cell_type_level0 %in% c("low_qual", "unclassified"))])
+
+total_counts <- table(metadata$tumor_core)
+
+lowQ_counts <- table(metadata$tumor_core[metadata$cell_type_level0 == "low_qual"])
+
+df <- data.frame(
+  core = names(total_counts),
+  total_cells = as.numeric(total_counts),
+  annotated_cells = as.numeric(annotated_counts[match(names(total_counts), names(annotated_counts))]),
+  lowQ_cells = as.numeric(lowQ_counts[match(names(total_counts), names(lowQ_counts))])
+)
+
+df[is.na(df)] <- 0
+
+df$lowQ_percentage <- df$lowQ_cells / df$total_cells * 100
+
+high_quality_cores <- df$core[df$annotated_cells >= 1000 & df$lowQ_percentage < 30]
+
+output_file <- paste0("~/export/merfish2/", TMA, "_high_quality_cores.txt")
+writeLines(high_quality_cores, output_file)
+
+print(high_quality_cores)
+
+
+low_quality_cores <- df$core[df$annotated_cells < 1000 | df$lowQ_percentage >= 30]
+
+lowQ_output_file <- paste0("~/export/merfish2/", TMA, "_low_quality_cores.txt")
+writeLines(low_quality_cores, lowQ_output_file)
+
+print("Low-quality cores:")
+print(low_quality_cores)
+
+
+
+```
+

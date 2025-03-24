@@ -1,0 +1,28 @@
+```{r}
+tma1 <- readRDS("~/export/merfish2/merfishTMA1_annotated.rds")
+tma2 <- readRDS("~/export/merfish2/merfishTMA2_annotated.rds")
+tma3 <- readRDS("~/export/merfish2/merfishTMA3_annotated.rds")
+
+```
+
+```{r}
+print(tma1) 
+print(tma2) 
+print(tma3)
+```
+
+```{r}
+num_cells_tma1 <- ncol(tma1)
+num_cells_tma2 <- ncol(tma2)
+num_cells_tma3 <- ncol(tma3)
+
+# Calculate the total number of cells
+total_cells <- num_cells_tma1 + num_cells_tma2 + num_cells_tma3
+
+cat("Number of cells in TMA1:", num_cells_tma1, "\n")
+cat("Number of cells in TMA2:", num_cells_tma2, "\n")
+cat("Number of cells in TMA3:", num_cells_tma3, "\n")
+cat("Total number of cells across all TMAs:", total_cells, "\n")
+
+```
+

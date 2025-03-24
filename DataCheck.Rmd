@@ -1,0 +1,126 @@
+---
+title: "DataCheck"
+output: html_document
+date: "2025-01-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(tidyverse)
+```
+
+```{r}
+tma1 = readRDS("~/export/merfish2/merfishCoreExpressionTMA1.rds")
+tma2 = readRDS("~/export/merfish2/merfishCoreExpressionTMA2.rds")
+tma3 = readRDS("~/export/merfish2/merfishCoreExpressionTMA3.rds")
+
+```
+
+```{r}
+annotation_tma1 = read.csv("./merscope_annotTMA1.txt", sep = "\t")
+annotation_tma2 = read.csv("./merscope_annotTMA2.txt", sep = "\t")
+annotation_tma3 = read.csv("./merscope_annotTMA3.txt", sep = "\t")
+
+```
+
+```{r}
+reshape_annotation <- function(annotation, prefix) {
+  annotation %>%
+    mutate(
+      Core = sub(paste0("^", prefix, "_"), "", ID),           # Extract Core from ID
+      PairCore = sub(paste0("^", prefix, "_"), "", pair)      # Extract Core from Pair
+    ) %>%
+    pivot_longer(
+      cols = c(Core, PairCore),
+      names_to = "Source",
+      values_to = "MappedCore"
+    ) %>%
+    distinct(MappedCore, tissue)  
+}
+
+annotation_tma1_reshaped <- reshape_annotation(annotation_tma1, "TMA1")
+annotation_tma2_reshaped <- reshape_annotation(annotation_tma2, "TMA2_2nd")
+annotation_tma3_reshaped <- reshape_annotation(annotation_tma3, "TMA3")
+
+filter_cores <- function(reshaped_annotation, core_names) {
+  reshaped_annotation %>%
+    filter(MappedCore %in% core_names)
+}
+
+filtered_annotation_tma1 <- filter_cores(annotation_tma1_reshaped, names(tma1))
+filtered_annotation_tma2 <- filter_cores(annotation_tma2_reshaped, names(tma2))
+filtered_annotation_tma3 <- filter_cores(annotation_tma3_reshaped, names(tma3))
+
+```
+
+
+```{r}
+all_filtered_annotations <- bind_rows(
+  filtered_annotation_tma1 %>% mutate(TMA = "TMA1"),
+  filtered_annotation_tma2 %>% mutate(TMA = "TMA2"),
+  filtered_annotation_tma3 %>% mutate(TMA = "TMA3")
+)
+total_cancer_counts <- all_filtered_annotations %>%
+  count(tissue) %>%
+  arrange(desc(n))
+
+pie(
+  total_cancer_counts$n,
+  labels = paste0(total_cancer_counts$tissue, " (", total_cancer_counts$n, ")"),
+  main = "Aggregated Cancer Type Distribution Across All TMAs",
+  col = rainbow(length(total_cancer_counts$n))
+)
+
+print(total_cancer_counts)
+
+```
+
+```{r}
+# Total number of cores across all TMAs
+total_cores <- sum(length(names(tma1)), length(names(tma2)), length(names(tma3)))
+cat("Total number of cores:", total_cores, "\n")
+
+```
+```{r}
+# Pie Chart for TMA1
+tma1_cancer_counts <- filtered_annotation_tma1 %>%
+  count(tissue) %>%
+  arrange(desc(n))
+
+pie(
+  tma1_cancer_counts$n,
+  labels = paste0(tma1_cancer_counts$tissue, " (", tma1_cancer_counts$n, ")"),
+  main = "Cancer Type Distribution in TMA1",
+  col = rainbow(length(tma1_cancer_counts$n))
+)
+
+# Pie Chart for TMA2
+tma2_cancer_counts <- filtered_annotation_tma2 %>%
+  count(tissue) %>%
+  arrange(desc(n))
+
+pie(
+  tma2_cancer_counts$n,
+  labels = paste0(tma2_cancer_counts$tissue, " (", tma2_cancer_counts$n, ")"),
+  main = "Cancer Type Distribution in TMA2",
+  col = rainbow(length(tma2_cancer_counts$n))
+)
+
+# Pie Chart for TMA3
+tma3_cancer_counts <- filtered_annotation_tma3 %>%
+  count(tissue) %>%
+  arrange(desc(n))
+
+pie(
+  tma3_cancer_counts$n,
+  labels = paste0(tma3_cancer_counts$tissue, " (", tma3_cancer_counts$n, ")"),
+  main = "Cancer Type Distribution in TMA3",
+  col = rainbow(length(tma3_cancer_counts$n))
+)
+
+```
+
