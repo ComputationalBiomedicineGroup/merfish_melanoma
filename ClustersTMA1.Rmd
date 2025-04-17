@@ -1,0 +1,215 @@
+---
+title: "Clusters TMA1"
+author: "Constantin Zackl"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(Seurat)
+  library(dplyr)
+  library(magrittr)
+  library(BiocParallel)
+  library(progressr)
+  library(spatstat)
+  library(sf)
+  library(plotly)
+  library(dplyr)
+  library(tidyr)
+  library(EBImage)
+  library(colorspace)
+library(dplyr)
+library(ggplot2)
+library(stats)
+library(gridExtra)
+})
+
+```
+
+
+```{r include=FALSE}
+crop_parameters <- list(
+  list(name="A2", x=c(7400, 8100), y=c(750, 1400)),
+  list(name="A6", x = c(7450, 8250), y = c(4850, 5550)), 
+  list(name="A7", x = c(7450, 8250), y = c(5900, 6600)), 
+  list(name="A8", x = c(7500, 8250), y = c(6950, 7600)),
+  list(name="A10", x = c(7550, 8350), y = c(9100, 9800)),
+  list(name="A11", x = c(7550, 8350), y = c(10100, 10800)),
+  list(name="B2", x = c(6400, 7050), y = c(750, 1400)),
+  list(name="B4", x = c(6400, 7100), y = c(2750, 3450)),
+  list(name="B6", x = c(6450, 7150), y = c(4850, 5550)),
+  list(name="B7", x = c(6450, 7200), y = c(5900, 6600)),
+  list(name="B8", x = c(6450, 7200), y = c(6950, 7700)), 
+  list(name="B9", x = c(6450, 7200), y = c(8000, 8800)),
+  list(name="B11", x = c(6450, 7250), y = c(10100, 10800)),
+  list(name="C3", x = c(5300, 6150), y = c(1700, 2450)), 
+  list(name="C7", x = c(5450, 6200), y = c(5900, 6650)), 
+  list(name="C9", x = c(5450, 6200), y = c(8000, 8800)),
+  list(name="C15", x = c(5450, 6200), y = c(14200, 14900)), 
+  list(name="D3", x = c(4350, 5100), y = c(1700, 2500)),
+  list(name="D8", x = c(4350, 5100), y = c(7050, 7750)), 
+  list(name="D9", x = c(4350, 5100), y = c(8000, 8800)),
+  list(name="D11", x = c(4300, 5100), y = c(10100, 10820)),
+  list(name="D15", x = c(4300, 5100), y = c(14200, 14950)),
+  list(name="E8", x = c(3200, 4000), y = c(7050, 7750)), 
+  list(name="E9", x = c(3200, 4100), y = c(8050, 8800)),
+  list(name="E10",  x = c(3200, 4100), y = c(9050, 9850)),
+  list(name="E13", x = c(3250, 4100), y = c(12150, 12850)), 
+  list(name="E14", x = c(3350, 4100), y = c(13250, 13900)),
+  list(name="E15", x = c(3350, 4100), y = c(14200, 15000)), 
+  list(name="F4", x = c(2100, 2850), y = c(2950, 3700)),
+  list(name="F9", x = c(2100, 3000), y = c(8050, 8800)),
+  list(name="F10", x = c(2100, 3000), y = c(9050, 9850)),
+  list(name="F13", x = c(2100, 3000), y = c(12150, 12900)),
+  list(name="F14", x = c(2100, 3000), y = c(13250, 14000)), 
+  list(name="G7", x = c(1200, 1900), y = c(6050, 6800)), 
+  list(name="G8", x = c(1200, 1950), y = c(7050, 7850)),
+  list(name="G10", x = c(1150, 1950), y = c(9050, 9850)),
+  list(name="G12",  x = c(1150, 1950), y = c(11150, 11950)),
+  list(name="G13", x = c(1150, 2000), y = c(12150, 12950)), 
+  list(name="H7", x = c(0, 850), y = c(6050, 6850)),
+  list(name="H8", x = c(0, 850), y = c(7050, 7850)),
+  list(name="H11", x = c(0, 850), y = c(10100, 10850)),
+  list(name="H14", x = c(0, 850), y = c(13250, 14050)))#,
+```
+
+```{r include=FALSE}
+data = readRDS("~/export/merfish2/merfishTMA1_annotated.rds")
+```
+
+### Remaining Cores after filtering: 
+
+```{r echo=FALSE, collapse=TRUE}
+cores <- unlist(lapply(crop_parameters, function(param) param$name))
+cores
+```
+
+
+```{r echo=FALSE, fig.width=15}
+
+# Empty data frame to store the results
+all_cores_df <- data.frame(Core = character(), Cluster = factor(), Frequency = numeric())
+
+for (core in cores) {
+    cluster <- data$cell_type_level0[Cells(data[[core]])]
+    cluster <- table(cluster)
+
+    df <- data.frame(Core = rep(core, length(cluster)), Cluster = names(cluster), Frequency = as.numeric(cluster))
+
+    all_cores_df <- rbind(all_cores_df, df)
+}
+
+
+
+frequency_matrix <- reshape2::dcast(all_cores_df, Core ~ Cluster, value.var = "Frequency", fill = 0)
+row.names(frequency_matrix) <- frequency_matrix$Core
+frequency_matrix <- frequency_matrix[, -1]
+
+dist_matrix <- dist(frequency_matrix)
+hc <- hclust(dist_matrix)
+
+dendro <- as.dendrogram(hc)
+
+ordered_cores <- factor(all_cores_df$Core, levels = row.names(frequency_matrix)[hc$order])
+
+all_cores_df$Core <- ordered_cores  
+
+all_cores_df$Cluster <- as.factor(all_cores_df$Cluster)
+
+cluster_levels <- levels(all_cores_df$Cluster)
+
+# level2
+distinct_colors <- c(
+  "B"                         = "#30A79C",
+  "T/NK"                      = "#356884",
+  "DC/Macro"                  = "#884AB9",
+  "KC"                        = "#5F8F63",
+  "Mel"                       = "#5A3E28",
+  "prol. Mel"                 = "#463320",
+  "low qual"                  = "#CCCCCC",
+  "unclassified"              = "#E7E7E7",
+  "VEC cluster1"              = "#b2182b",
+  "VEC cluster2"              = "#ef3b2c",
+  "LEC"                       = "#D86D70",
+  "myFB & vSMC_atEC"          = "#E3B417",
+  "myFB & vSMC_dist"          = "#FCCA46",
+  "prol. FB & pericytes_atEC" = "#9D5C2F",
+  "prol. FB & pericytes_dist" = "#B86E3C",
+  "iCAF_atEC"                 = "#D96A1F",
+  "iCAF_dist"                 = "#FE7F2D",
+  "iCAF_aEtEC"                = "#D96A1F" 
+)
+
+  
+# level1
+distinct_colors <- c(
+  "B"                    = "#30A79C",
+  "T/NK"                 = "#356884",
+  "DC/Macro"             = "#884AB9",
+  "KC"                   = "#5F8F63",
+  "Mel"                  = "#5A3E28",
+  "prol. Mel"            = "#463320",
+  "LEC"                  = "#D86D70",
+  "VEC cluster1"         = "#b2182b",
+  "VEC cluster2"         = "#ef3b2c",
+  "myFB & vSMC"          = "#FCCA46",
+  "prol. FB & pericytes" = "#B86E3C",
+  "iCAF"                 = "#FE7F2D",
+  "low qual"             = "#CCCCCC",
+  "unclassified"         = "#E7E7E7"
+)
+# 
+# # # level0
+distinct_colors <- c(
+  "B" = "#30A79C",
+  "T/NK" = "#356884",
+  "DC/Macro" = "#884AB9",
+  "KC" = "#5F8F63",
+  "Mel" = "#5A3E28",
+  "prol. Mel" = "#463320",
+  "LEC/VEC" = "#D86D70",
+  "FB" = "#FDA43A",
+  "low qual" = "#CCCCCC",
+  "unclassified" = "#E7E7E7"
+)
+
+
+# Reorder levels
+all_cores_df$Cluster <- factor(all_cores_df$Cluster, levels = rev(names(distinct_colors)))
+
+tma = "TMA1"
+level = "level0"
+
+
+plot <- ggplot(all_cores_df, aes(x = Core, y = Frequency, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = distinct_colors) +
+  labs(
+    title = paste("Cluster Composition", tma, level), 
+    x = "Core", 
+    y = "Frequency", 
+    fill = "Cluster"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)  
+  )
+
+base_path = "~/export/merfish2/ClusterComp/"
+filename <- file.path(base_path, paste0(tma, "_", level,  ".png"))
+
+ggsave(filename = filename, plot = plot, width = 15, height = 10, dpi = 300)
+
+
+
+plot <- plot(dendro, main=paste("Dendrogram of cluster composition", tma, level), xlab="Cores", ylab="Height")
+
+```
