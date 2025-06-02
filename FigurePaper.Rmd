@@ -1,0 +1,166 @@
+---
+title: "FinalFigure"
+output: html_document
+date: "2025-05-28"
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(Giotto)
+  library(ggplot2)
+  library(dplyr)
+  library(magrittr)
+})
+
+TMA <- "TMA2"  
+
+seurat <- readRDS(paste0("~/Downloads/merfish", TMA, "_annotated.rds"))
+seurat@meta.data <- seurat@meta.data[, -1]
+
+```
+
+```{r}
+seurat@meta.data <- seurat@meta.data %>%
+  mutate(cell_type_level3 = case_when(
+    cell_type_level2 %in% c("myFB & vSMC_dist",
+                            "prol. FB & pericytes_dist",
+                            "iCAF_dist")            ~ "CAFs",
+    cell_type_level2 %in% c("myFB & vSMC_atEC",
+                            "prol. FB & pericytes_atEC",
+                            "iCAF_atEC")             ~ "vSMCs",
+    cell_type_level2 %in% c("VEC cluster1",
+                            "VEC cluster2",
+                            "LEC")                   ~ "EC",
+    TRUE                                            ~ "Other"
+  )) %>%
+
+  # set legend order
+  mutate(cell_type_level3 = factor(cell_type_level3,
+                                   levels = c("CAFs","vSMCs","EC","Other")))
+
+```
+
+
+```{r include=FALSE}
+crop_parameters <- list(
+  list(name="A2", x=c(7600, 8450), y=c(1250, 2050)),
+  list(name="B2", x=c(6450, 7400), y=c(1400, 2200)),
+  list(name="A3", x=c(7600, 8550), y=c(2300, 3200)),
+  list(name="B3", x=c(6450, 7400), y=c(2400, 3250)),
+  list(name="C3", x=c(5500, 6450), y=c(2500, 3300)),
+  list(name="D3", x=c(4400, 5250), y=c(2300, 3250)),
+  list(name="E3", x=c(3200, 4250), y=c(2300, 3350)),
+  list(name="F3", x=c(2300, 3200), y=c(2300, 3350)),
+  list(name="G3", x=c(1300, 2300), y=c(2500, 3320)),
+  list(name="H3", x=c(0, 900), y=c(2500, 3350)),
+  list(name="C4", x=c(5500, 6450), y=c(3650, 4400)),
+  list(name="D4", x=c(4400, 5250), y=c(3650, 4400)),
+  list(name="G4", x=c(1250, 2100), y=c(3650, 4450)),
+  list(name="H4", x=c(0, 900), y=c(3650, 4450)),
+  list(name="B5", x=c(6600, 7500), y=c(4700, 5450)),
+  list(name="C5", x=c(5620, 6450), y=c(4500, 5550)),
+  list(name="D5", x=c(4400, 5300), y=c(4500, 5550)),
+  list(name="E5", x=c(3500, 4250), y=c(4800, 5600)),
+  list(name="F5", x=c(2200, 3150), y=c(4750, 5650)),
+  list(name="G5", x=c(1250, 2100), y=c(4500, 5550)),
+  list(name="H5", x=c(0, 900), y=c(4500, 5550)),
+  list(name="A6", x=c(7850, 8650), y=c(5700, 6450)), 
+  list(name="B6", x=c(6600, 7500), y=c(5750, 6650)),
+  list(name="C6", x=c(5600, 6450), y=c(6000, 6850)),
+  list(name="D6", x=c(4550, 5300), y=c(5950, 6850)),
+  list(name="E6", x=c(3530, 4300), y=c(5950, 6750)),
+  list(name="F6", x=c(2200, 3200), y=c(5950, 6750)),
+  list(name="G6", x=c(1200, 2100), y=c(5950, 6750)),
+  list(name="C7", x=c(5650, 6450), y=c(7000, 7800)),
+  list(name="D7", x=c(4550, 5300), y=c(7050, 7850)),
+  list(name="E7", x=c(3530, 4300), y=c(7100, 7900)),
+  list(name="F7", x=c(2200, 3200), y=c(7200, 8050)),
+  list(name="H7", x=c(0, 900), y=c(7400, 8200)),
+  list(name="A8", x=c(7850, 8700), y=c(8200, 8850)),
+  list(name="B8", x=c(6800, 7550), y=c(8200, 8900)),
+  list(name="C8", x=c(5650, 6550), y=c(8100, 9000)),
+  list(name="D8", x=c(4550, 5300), y=c(8250, 9050)),
+  list(name="E8", x=c(3530, 4300), y=c(8300, 9050)),
+  list(name="F8", x=c(2300, 3200), y=c(8300, 9100)),
+  list(name="G8", x=c(1250, 2100), y=c(8500, 9300)),
+  list(name="H8", x=c(0, 900), y=c(8600, 9400)),
+  list(name="A9", x=c(7850, 8700), y=c(9300, 10000)),
+  list(name="B9", x=c(6600, 7550), y=c(9350, 10100)),
+  list(name="F9", x=c(2350, 3200), y=c(9450, 10300)),
+  list(name="G9", x=c(1350, 2100), y=c(9700, 10450)),
+  list(name="H9", x=c(0, 1000), y=c(9750, 10500)),
+  list(name="A10", x=c(7850, 8700), y=c(10400, 11140)),
+  list(name="B10", x=c(6803, 7550), y=c(10500, 11250)),
+  list(name="C10", x=c(5650, 6550), y=c(10500, 11300)),
+  list(name="E10", x=c(3650, 4400), y=c(10500, 11350)),
+  list(name="F10", x=c(2350, 3200), y=c(10600, 11350)),
+  list(name="G10", x=c(1350, 2100), y=c(10800, 11450)),
+  list(name="H10", x=c(0, 1000), y=c(10900, 11650)),
+  list(name="A11", x=c(7850, 8700), y=c(11600, 12350)),
+  list(name="B11", x=c(6803, 7550), y=c(11600, 12350)),
+  list(name="C11", x=c(5800, 6650), y=c(11600, 12400)),
+  list(name="D11", x=c(4630, 5550), y=c(11600, 12400)),
+  list(name="E11", x=c(3650, 4500), y=c(11600, 12450)),
+  list(name="F11", x=c(2300, 3300), y=c(11750, 12500)),
+  list(name="E12", x=c(3800, 4600), y=c(12820, 13605)),
+  list(name="F12", x=c(2500, 3300), y=c(12820, 13500)),
+  list(name="G12", x=c(1500, 2400), y=c(12820, 13800)),
+  list(name="H12", x=c(0, 1200), y=c(13100, 13800)),
+  list(name="F13", x=c(2500, 3350), y=c(14100, 14850)),
+  list(name="G13", x=c(1650, 2400), y=c(14100, 14850)),
+  list(name="H13", x=c(0, 1250), y=c(14220, 14950)) 
+)
+```
+
+```{r}
+expr_matrix <- GetAssayData(seurat, slot = "counts")
+spatial_coords <- as.data.frame(GetTissueCoordinates(seurat))
+colnames(spatial_coords) <- c("sdimy", "sdimx", "cell_ID") 
+spatial_coords <- spatial_coords[, c("sdimx", "sdimy", "cell_ID")] 
+
+cell_metadata <- seurat@meta.data
+
+giotto_obj <- createGiottoObject(
+  raw_exprs = expr_matrix, 
+  spatial_locs = spatial_coords, 
+  cell_metadata = cell_metadata,
+  instructions = createGiottoInstructions()
+)
+
+```
+
+```{r}
+palette_3 <- c(
+  CAFs  = "#FDA43A",  
+  vSMCs = "#4DBBD5",  
+  EC    = "#D84F5F",  
+  Other = "#F0F0F0"  
+)
+```
+
+
+```{r, fig.dpi=300}
+core = c("H12")
+
+# Subset Giotto object to the selected current core
+subset_cells <- cell_metadata$identifier[cell_metadata$tumor_core == paste0(TMA, "_", core)]
+giotto_subset <- subsetGiotto(giotto_obj, cell_ids = subset_cells)
+
+plot_level1 <- spatPlot2D(
+  giotto_subset, 
+  point_shape = 'voronoi', 
+  vor_max_radius = 15, 
+  cell_color = "cell_type_level3", 
+  cell_color_code = palette_3, 
+  point_alpha = 0, 
+  title = NULL 
+) +
+  coord_equal() +                                  
+  theme_void() +                                   
+  theme(legend.position = "right") +
+  theme(legend.title = element_blank()) + 
+  ggtitle(NULL)
+
+
+ggsave("~/Downloads/TMA2_H5.png", plot_level1, width = 10, height = 7, bg = "white")
+```
