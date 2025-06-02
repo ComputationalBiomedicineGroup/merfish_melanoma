@@ -1,0 +1,131 @@
+---
+title: "IntegrateAnnotationTMA1"
+output: html_document
+date: "2025-01-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r parameters, collapse=TRUE}
+crop_parameters <- list(
+  list(name="A2", x=c(7400, 8100), y=c(750, 1400)),
+  list(name="A6", x = c(7450, 8250), y = c(4850, 5550)),
+  list(name="A7", x = c(7450, 8250), y = c(5900, 6600)),
+  list(name="A8", x = c(7500, 8250), y = c(6950, 7600)),
+  list(name="A10", x = c(7550, 8350), y = c(9100, 9800)),
+  list(name="A11", x = c(7550, 8350), y = c(10100, 10800)),
+  list(name="B2", x = c(6400, 7050), y = c(750, 1400)),
+  list(name="B4", x = c(6400, 7100), y = c(2750, 3450)),
+  list(name="B6", x = c(6450, 7150), y = c(4850, 5550)),
+  list(name="B7", x = c(6450, 7200), y = c(5900, 6600)),
+  list(name="B8", x = c(6450, 7200), y = c(6950, 7700)),
+  list(name="B9", x = c(6450, 7200), y = c(8000, 8800)),
+  list(name="B11", x = c(6450, 7250), y = c(10100, 10800)),
+  list(name="C3", x = c(5300, 6150), y = c(1700, 2450)),
+  list(name="C7", x = c(5450, 6200), y = c(5900, 6650)),
+  list(name="C9", x = c(5450, 6200), y = c(8000, 8800)),
+  list(name="C15", x = c(5450, 6200), y = c(14200, 14900)),
+  list(name="D3", x = c(4350, 5100), y = c(1700, 2500)),
+  list(name="D8", x = c(4350, 5100), y = c(7050, 7750)),
+  list(name="D9", x = c(4350, 5100), y = c(8000, 8800)),
+  list(name="D11", x = c(4300, 5100), y = c(10100, 10820)),
+  list(name="D15", x = c(4300, 5100), y = c(14200, 14950)),
+  list(name="E8", x = c(3200, 4000), y = c(7050, 7750)),
+  list(name="E9", x = c(3200, 4100), y = c(8050, 8800)),
+  list(name="E10",  x = c(3200, 4100), y = c(9050, 9850)),
+  list(name="E13", x = c(3250, 4100), y = c(12150, 12850)),
+  list(name="E14", x = c(3350, 4100), y = c(13250, 13900)),
+  list(name="E15", x = c(3350, 4100), y = c(14200, 15000)),
+  list(name="F4", x = c(2100, 2850), y = c(2950, 3700)),
+  list(name="F9", x = c(2100, 3000), y = c(8050, 8800)),
+  list(name="F10", x = c(2100, 3000), y = c(9050, 9850)),
+  list(name="F13", x = c(2100, 3000), y = c(12150, 12900)),
+  list(name="F14", x = c(2100, 3000), y = c(13250, 14000)),
+  list(name="G7", x = c(1200, 1900), y = c(6050, 6800)),
+  list(name="G8", x = c(1200, 1950), y = c(7050, 7850)),
+  list(name="G10", x = c(1150, 1950), y = c(9050, 9850)),
+  list(name="G12",  x = c(1150, 1950), y = c(11150, 11950)),
+  list(name="G13", x = c(1150, 2000), y = c(12150, 12950)),
+  list(name="H7", x = c(0, 850), y = c(6050, 6850)),
+  list(name="H8", x = c(0, 850), y = c(7050, 7850)),
+  list(name="H11", x = c(0, 850), y = c(10100, 10850)),
+  list(name="H14", x = c(0, 850), y = c(13250, 14050)))
+```
+
+```{r}
+cores <- unlist(lapply(crop_parameters, function(param) param$name))
+```
+
+```{r}
+data = readRDS("~/export/merfish2/merfishTMA1_area_filtered.rds")
+```
+
+```{r}
+metadata = readRDS("../TMA_unfiltered_annotated_full_final_v2.rds")
+```
+
+
+```{r}
+fb_list = read.table("~/export/merfish2/fibroblast_with_endothelial_TMA1.txt", colClasses = "character")$V1
+```
+
+
+```{r remove unwanted cells}
+# remove cells not in cores
+cells_in_cores <- c()
+for (core in cores) {
+  cells_in_cores <- append(cells_in_cores, Cells(data[[core]]))
+}
+
+# subset
+suppressWarnings({
+  data <- data[, cells_in_cores]
+})
+```
+
+```{r}
+fibroblast_types <- c("myFB & vSMC", "prol. FB & pericytes", "iCAF")
+
+```
+
+
+```{r}
+# Extract metadata from the annotation object
+annotation_metadata <- metadata@meta.data
+
+annotation_metadata_filtered <- annotation_metadata[annotation_metadata$orig.ident == "TMA1", ]
+
+rownames(annotation_metadata_filtered) <- annotation_metadata_filtered$identifier
+
+data_metadata <- data@meta.data
+
+data_metadata$identifier <- sub(".*_", "", rownames(data_metadata))
+
+common_ids <- intersect(data_metadata$identifier, rownames(annotation_metadata_filtered))
+
+annotation_metadata_subset <- annotation_metadata_filtered[common_ids, , drop = FALSE]
+
+data_metadata_subset <- data_metadata[data_metadata$identifier %in% common_ids, , drop = FALSE]
+data_metadata_subset <- data_metadata_subset[match(rownames(annotation_metadata_subset), data_metadata_subset$identifier), ]
+
+stopifnot(identical(data_metadata_subset$identifier, rownames(annotation_metadata_subset)))
+
+merged_metadata <- cbind(data_metadata_subset, annotation_metadata_subset)
+
+merged_metadata$cell_type_level2 <- merged_metadata$cell_type_level1
+
+fibroblast_indices <- which(merged_metadata$cell_type_level1 %in% fibroblast_types)
+
+merged_metadata$cell_type_level2[fibroblast_indices] <- paste0(
+  merged_metadata$cell_type_level1[fibroblast_indices],
+  ifelse(rownames(merged_metadata)[fibroblast_indices] %in% fb_list, "_atEC", "_dist")
+)
+
+
+data@meta.data <- merged_metadata
+```
+```{r}
+saveRDS(data, file="~/export/merfish2/merfishTMA1_annotated.rds")
+```

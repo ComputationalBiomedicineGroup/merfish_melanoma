@@ -1,0 +1,64 @@
+---
+title: "IntegrateAnnotationTMA3"
+output: html_document
+date: "2025-01-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data = readRDS("~/export/merfish2/merfishTMA3_area_filtered.rds")
+```
+
+```{r}
+metadata = readRDS("../TMA_unfiltered_annotated_full_final_v2.rds")
+```
+
+```{r}
+fb_list = read.table("~/export/merfish2/fibroblast_with_endothelial_TMA3.txt", colClasses = "character")$V1
+
+```
+
+```{r}
+fibroblast_types <- c("myFB & vSMC", "prol. FB & pericytes", "iCAF")
+
+```
+
+
+```{r}
+annotation_metadata <- metadata@meta.data
+
+
+annotation_metadata_filtered <- annotation_metadata[annotation_metadata$orig.ident == "TMA3", ]
+
+rownames(annotation_metadata_filtered) <- annotation_metadata_filtered$identifier
+data_metadata <- data@meta.data
+
+data_metadata$identifier <- sub(".*_", "", rownames(data_metadata))
+
+common_ids <- intersect(data_metadata$identifier, rownames(annotation_metadata_filtered))
+annotation_subset <- annotation_metadata_filtered[common_ids, , drop = FALSE]
+
+data_subset <- data_metadata[data_metadata$identifier %in% common_ids, , drop = FALSE]
+data_subset <- data_subset[match(rownames(annotation_subset), data_subset$identifier), ]
+
+stopifnot(identical(data_subset$identifier, rownames(annotation_subset)))
+
+merged_metadata <- cbind(data_subset, annotation_subset)
+merged_metadata$cell_type_level2 <- merged_metadata$cell_type_level1
+
+fibroblast_indices <- which(merged_metadata$cell_type_level1 %in% fibroblast_types)
+
+merged_metadata$cell_type_level2[fibroblast_indices] <- paste0(
+  merged_metadata$cell_type_level1[fibroblast_indices],
+  ifelse(rownames(merged_metadata)[fibroblast_indices] %in% fb_list, "_atEC", "_dist")
+)
+
+data@meta.data <- merged_metadata
+```
+```{r}
+# Store Object
+saveRDS(data, file="~/export/merfish2/merfishTMA3_annotated.rds")
+```
