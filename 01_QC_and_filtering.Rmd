@@ -1,0 +1,315 @@
+---
+title: "QC filtering"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r Setup}
+set.seed(1234)
+```
+
+
+```{r Load libraries, include = FALSE}
+library(Seurat)
+options(Seurat.object.assay.version = "v3") 
+library(knitr)
+library(ggplot2)
+```
+
+```{r Load Data, include = FALSE}
+
+TMA1 <- readRDS("/gpfs/gpfs1/scratch/c1041182/sc_analysis/Merfish/Final_run_Jan25/merfishCoreExpressionTMA1.rds")
+TMA2 <- readRDS("/gpfs/gpfs1/scratch/c1041182/sc_analysis/Merfish/Final_run_Jan25/merfishCoreExpressionTMA2.rds")
+TMA3 <- readRDS("/gpfs/gpfs1/scratch/c1041182/sc_analysis/Merfish/Final_run_Jan25/merfishCoreExpressionTMA3.rds")
+
+
+# Add batch and sample ID to colnames
+
+for(name in names(TMA1)){
+  
+  sample_id <- name
+  colnames(TMA1[[name]]) <- paste0("TMA1_", sample_id, "_", colnames(TMA1[[name]]))
+  
+}
+
+for(name in names(TMA2)){
+  
+  sample_id <- name
+  colnames(TMA2[[name]]) <- paste0("TMA2_", sample_id, "_", colnames(TMA2[[name]]))
+  
+}
+
+for(name in names(TMA3)){
+  
+  sample_id <- name
+  colnames(TMA3[[name]]) <- paste0("TMA3_", sample_id, "_", colnames(TMA3[[name]]))
+  
+}
+
+# Create one matrix from all sample matrices 
+TMA1 <- Reduce(cbind, TMA1)
+TMA2 <- Reduce(cbind, TMA2)
+TMA3 <- Reduce(cbind, TMA3)
+```
+
+```{r}
+# Remove core E1 from TMA1
+to_remove <- grepl("TMA1_E1_", colnames(TMA1), fixed = TRUE)
+TMA1 <- TMA1[,!to_remove]
+
+```
+
+```{r Create Seurat Objects}
+
+TMA1 <- CreateSeuratObject(TMA1, project = "TMA1", min.cells = 0, min.features = 0)
+TMA2 <- CreateSeuratObject(TMA2, project = "TMA2", min.cells = 0, min.features = 0)
+TMA3 <- CreateSeuratObject(TMA3, project = "TMA3", min.cells = 0, min.features = 0)
+
+# Add metadata 
+library(stringr)
+
+add_metadata <- function(seurat_object){
+  
+  meta <- str_split(colnames(seurat_object), pattern = "_", n = 3)
+  meta <- as.data.frame(do.call(rbind, meta))
+  colnames(meta) <- c("batch", "tumor", "identifier")
+  meta$sample <- paste0(meta$batch, "_", meta$tumor)
+
+  seurat_object <- AddMetaData(seurat_object, metadata = meta)
+  
+  return(seurat_object)
+  
+}
+
+TMA1 <- add_metadata(TMA1)
+TMA2 <- add_metadata(TMA2)
+TMA3 <- add_metadata(TMA3)
+
+```
+
+```{r}
+saveRDS(TMA1, "TMA1_unfiltered.rds")
+saveRDS(TMA2, "TMA2_unfiltered.rds")
+saveRDS(TMA3, "TMA3_unfiltered.rds")
+
+```
+
+```{r Create UMAP function}
+create_UMAP <- function(seurat_object, batch, nfeatures = 500){
+  
+  seurat_object <- seurat_object %>% 
+    NormalizeData() %>%
+    FindVariableFeatures(nfeatures = nfeatures) %>%
+    ScaleData() %>%
+    RunPCA() %>%
+    RunHarmony(batch) %>%
+    RunUMAP(reduction = "harmony", dims = 1:20)
+
+  return(seurat_object)  
+  
+}
+
+```
+
+```{r Create UMAPS}
+library(harmony)
+
+TMA1 <- create_UMAP(TMA1, batch = "sample")
+TMA2 <- create_UMAP(TMA2, batch = "sample")
+TMA3 <- create_UMAP(TMA3, batch = "sample")
+
+saveRDS(TMA1, "TMA1_unfiltered_UMAP.rds")
+saveRDS(TMA2, "TMA2_unfiltered_UMAP.rds")
+saveRDS(TMA3, "TMA3_unfiltered_UMAP.rds")
+
+```
+
+```{r}
+
+TMA1 <- readRDS("TMA1_unfiltered_UMAP.rds")
+TMA2 <- readRDS("TMA2_unfiltered_UMAP.rds")
+TMA3 <- readRDS("TMA3_unfiltered_UMAP.rds")
+
+```
+
+```{r}
+# Plot elbow plots
+ElbowPlot(TMA1, ndims = 50)
+ElbowPlot(TMA2, ndims = 50)
+ElbowPlot(TMA3, ndims = 50)
+
+```
+
+# TMA unfiltered - counts and features plot
+
+```{r}
+library(scCustomize)
+colors <- ColorBlind_Pal()
+# Plot UMAPs
+
+FeaturePlot(TMA1, features = "nCount_RNA") + ggtitle("TMA1 unfiltered - counts")
+FeaturePlot(TMA2, features = "nCount_RNA") + ggtitle("TMA2 unfiltered - counts")
+FeaturePlot(TMA3, features = "nCount_RNA") + ggtitle("TMA3 unfiltered - counts")
+
+FeaturePlot(TMA1, features = "nFeature_RNA") + ggtitle("TMA1 unfiltered - features")
+FeaturePlot(TMA2, features = "nFeature_RNA") + ggtitle("TMA2 unfiltered - features")
+FeaturePlot(TMA3, features = "nFeature_RNA") + ggtitle("TMA3 unfiltered - features")
+
+
+
+```
+
+## Densitiy plots for number of counts 
+
+```{r Density Plots}
+library(ggplot2)
+df <- data.frame(counts = TMA1$nCount_RNA)
+ggplot(df, aes(counts)) + geom_density() +
+  ggtitle('TMA1')
+
+df <- data.frame(counts = TMA2$nCount_RNA)
+ggplot(df, aes(counts)) + geom_density() +
+  ggtitle('TMA2')
+
+df <- data.frame(counts = TMA3$nCount_RNA)
+ggplot(df, aes(counts)) + geom_density() +
+  ggtitle('TMA3')
+
+```
+
+## Densitiy plots for number of features 
+
+
+```{r Feature distribution}
+
+df <- data.frame(counts = TMA1$nFeature_RNA)
+ggplot(df, aes(counts)) + geom_density() +
+  ggtitle('TMA1 - Genes')
+
+df <- data.frame(counts = TMA2$nFeature_RNA)
+ggplot(df, aes(counts)) + geom_density() +
+  ggtitle('TMA2 - Genes')
+
+df <- data.frame(counts = TMA3$nFeature_RNA)
+ggplot(df, aes(counts)) + geom_density() +
+  ggtitle('TMA3 - Genes')
+
+```
+
+## Final filtering for TMA1, TMA2 and TMA3
+
+* Final filters for all TMAs are nCount_RNA >= 10 & nFeature_RNA >= 5
+
+```{r Final cutoffs}
+
+
+mask <- TMA1$nCount_RNA >= 10 & TMA1$nFeature_RNA >= 5
+TMA1_filtered2 <- TMA1[,mask]
+
+TMA1$qc <- ifelse(mask, "normal_qual", "low_qual")
+
+QC_Plots_UMIs(
+  TMA1,
+  plot_title = "Number of UMIs per cell",
+  y_axis_label = "Counts",
+  low_cutoff = 10,
+  pt.size = 0,
+  colors_use = colors[1]
+)
+
+QC_Plots_Genes(
+  TMA1,
+  plot_title = "Number of features per cell",
+  y_axis_label = "Features",
+  low_cutoff = 5,
+  pt.size = 0,
+  colors_use = colors[1]
+)
+
+mask <- TMA2$nCount_RNA >= 10 & TMA2$nFeature_RNA >= 5
+TMA2_filtered2 <- TMA2[,mask]
+
+QC_Plots_UMIs(
+  TMA1,
+  plot_title = "Number of UMIs per cell",
+  y_axis_label = "Counts",
+  low_cutoff = 10,
+  pt.size = 0,
+  colors_use = colors[2]
+)
+
+QC_Plots_Genes(
+  TMA2,
+  plot_title = "Number of features per cell",
+  y_axis_label = "Features",
+  low_cutoff = 5,
+  pt.size = 0,
+  colors_use = colors[2]
+)
+
+mask <- TMA3$nCount_RNA >= 10 & TMA3$nFeature_RNA >= 5
+TMA3_filtered2 <- TMA3[,mask]
+
+QC_Plots_UMIs(
+  TMA1,
+  plot_title = "Number of UMIs per cell",
+  y_axis_label = "Counts",
+  low_cutoff = 10,
+  pt.size = 0,
+  colors_use = colors[3]
+)
+
+QC_Plots_Genes(
+  TMA3,
+  plot_title = "Number of features per cell",
+  y_axis_label = "Features",
+  low_cutoff = 5,
+  pt.size = 0,
+  colors_use = colors[3]
+)
+
+```
+
+```{r}
+
+DimPlot(TMA1_filtered2, cols = colors[1])
+DimPlot(TMA2_filtered2, cols = colors[2])
+DimPlot(TMA3_filtered2, cols = colors[3])
+
+```
+
+## Final number of filtered out cells per dataset
+
+```{r}
+
+len <- length(colnames(TMA1)) - length(colnames(TMA1_filtered2))
+print(paste0("For TMA1 a total of ", len, " cells were filtered out from a total of", length(colnames(TMA1)), " cells."))
+
+len <- length(colnames(TMA2)) - length(colnames(TMA2_filtered2))
+print(paste0("For TMA2 a total of ", len, " cells were filtered out from a total of", length(colnames(TMA2)), " cells."))
+
+len <- length(colnames(TMA3)) - length(colnames(TMA3_filtered2))
+print(paste0("For TMA3 a total of ", len, " cells were filtered out from a total of", length(colnames(TMA3)), " cells."))
+```
+
+# Final merged and integrated dataset
+
+```{r}
+#Merge datasets
+library(harmony)
+
+TMA_full <- merge(x = TMA1_filtered2, y = c(TMA2_filtered2, TMA3_filtered2))
+TMA_full <- create_UMAP(TMA_full, batch = "sample")
+
+TMA_full
+
+DimPlot(TMA_full, cols = colors)
+
+saveRDS(TMA_full, 'TMA_filtered_merged_integrated_new.rds')
+
+```
+
+
