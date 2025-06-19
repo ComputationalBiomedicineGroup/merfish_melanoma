@@ -1,0 +1,606 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r Load libraries, include = FALSE}
+library(Seurat)
+options(Seurat.object.assay.version = "v3") 
+library(knitr)
+library(ggplot2)
+```
+
+```{r Set seed}
+set.seed(4343)
+```
+
+```{r Load Data}
+TMA <- readRDS('TMA_filtered_merged_integrated_new.rds')
+```
+
+```{r}
+# Clustering
+TMA <- FindNeighbors(TMA, reduction = "harmony", dims = 1:20)
+TMA <- FindClusters(TMA, algorithm = 4, resolution = 0.5, method = "igraph") 
+
+DimPlot(TMA, group.by = 'seurat_clusters', label = TRUE, repel = TRUE, cols = colors)
+
+```
+
+```{r}
+# Save object 
+saveRDS(TMA, "TMA_harmony_20dims.rds")
+
+```
+
+
+```{r Load R Data, eval = FALSE}
+
+TMA <- readRDS("TMA_harmony_20dims.rds")
+
+```
+
+```{r}
+# Remove duplicated cells in TMA1
+# Duplicated cells
+duplicates <- read.csv("/gpfs/gpfs1/scratch/c1041182/sc_analysis/Merfish/Final_run_Jan25/duplicates_tma1.csv")
+duplicates$duplicate_colnames <- as.character(duplicates$duplicate_colnames)
+#duplicates <- unique(duplicates$duplicate_colnames)
+duplicates <- duplicates$duplicate_colnames
+
+```
+
+```{r}
+# Check where the duplicates are exactly
+TMA1 <- TMA[,TMA$batch == "TMA1"]
+
+cell_core <- TMA@meta.data[,c("identifier", "tumor")]
+# Only keep duplicated values
+cell_core <- cell_core[cell_core$identifier %in% duplicates,]
+cell_core <- unique(cell_core)
+
+TMA_wo_duplicates <- TMA[,!duplicated(TMA$identifier)]
+
+setdiff(unique(TMA_wo_duplicates$sample), unique(TMA$sample))
+setdiff(unique(TMA$sample), unique(TMA_wo_duplicates$sample))
+
+# Removes D4 and D2 - but first check if all cells in D2 are also in H7
+cells_in_D2 <- TMA$identifier[TMA$sample == "TMA1_D2"]
+cells_in_H7 <- TMA$identifier[TMA$sample == "TMA1_H7"]
+
+setdiff(cells_in_D2, cells_in_H7)
+setdiff(cells_in_H7, cells_in_D2)
+
+```
+
+```{r}
+# Remove duplicate cells - found in D2 and D4
+to_remove <- TMA$sample %in% c("TMA1_D2", "TMA1_D4")
+TMA <- TMA[,!to_remove]
+
+```
+
+# <font color="#7393B3"><u>Integrated dataset</u></font> {.tabset}
+
+## <font color="#7393B3"><u>Dataset</u></font>
+
+```{r}
+
+library(scCustomize)
+
+colors <- DiscretePalette_scCustomize(num_colors = 25, palette = "ditto_seq")
+
+DimPlot(TMA, group.by = 'seurat_clusters', cols = colors, label = TRUE, repel = TRUE)
+
+DimPlot(TMA, group.by = 'batch', cols = colors)
+
+
+```
+
+## <font color="#7393B3"><u>Marker genes</u></font>
+
+### Melanoma cell markers
+
+```{r, fig.height=6, fig.width=8}
+# Not found 'NCAM'
+FeaturePlot(TMA, features = c('KIT', 'CDK2', 'CDH1', 'ERBB3'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2, pt.size = 2)
+
+```
+
+```{r, fig.height=12, fig.width=24}
+
+VlnPlot(TMA, features = c('KIT', 'CDK2', 'CDH1', 'ERBB3'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Neuronal cells markers
+
+```{r, fig.height=12, fig.width=8}
+# 'PPARGC1A' plus 'NCAM1' ('PTK2', 'SOX2', 'FGF1', 'FGFR2', 'FGFR3', 'VEGFC')
+
+FeaturePlot(TMA, features = c('PPARGC1A', 'NCAM1', 'PTK2', 'SOX2', 'FGF1', 'FGFR2', 'FGFR3', 'VEGFC'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=24, fig.width=24}
+
+VlnPlot(TMA, features = c('PPARGC1A', 'NCAM1', 'PTK2', 'SOX2', 'FGF1', 'FGFR2', 'FGFR3', 'VEGFC'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Epithelial cells (Keratinocytes)
+
+```{r, fig.height=12, fig.width=8}
+#'S100A9' plus 'MYC' ('ZBED2', 'SOX2', 'SOX9', 'CDH1', 'TP63', 'LAMB3')
+
+FeaturePlot(TMA, features = c('S100A9', 'MYC', 'ZBED2', 'SOX2', 'SOX9', 'CDH1', 'TP63', 'LAMB3'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=24, fig.width=24}
+
+VlnPlot(TMA, features = c('S100A9', 'MYC', 'ZBED2', 'SOX2', 'SOX9', 'CDH1', 'TP63', 'LAMB3'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### LEC
+```{r, fig.height=9, fig.width=8}
+#'PECAM1' plus 'FLT4' and 'PROX1' ('PDPN', 'KDR')
+
+FeaturePlot(TMA, features = c('PECAM1', 'FLT4', 'PROX1', 'PDPN', 'KDR'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('PECAM1', 'FLT4', 'PROX1', 'PDPN', 'KDR'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### VEC
+```{r, fig.height=9, fig.width=8}
+#'PECAM1' plus 'VWF' ('PLVAP', 'CLEC14A', 'FLT1', 'KDR')
+
+FeaturePlot(TMA, features = c('PECAM1', 'VWF', 'PLVAP', 'CLEC14A', 'FLT1', 'KDR'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('PECAM1', 'VWF', 'PLVAP', 'CLEC14A', 'FLT1', 'KDR'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### vSMC
+```{r, fig.height=12, fig.width=8}
+#'ACTA2' plus 'DES' ('NDUFA4L2', 'ADAMTS4', 'ITGA1', 'ANGPT1', 'PDGFA')
+
+FeaturePlot(TMA, features = c('ACTA2', 'DES', 'NDUFA4L2', 'ADAMTS4', 'ITGA1', 'ANGPT1', 'PDGFA'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=24, fig.width=24}
+
+VlnPlot(TMA, features = c('ACTA2', 'DES', 'NDUFA4L2', 'ADAMTS4', 'ITGA1', 'ANGPT1', 'PDGFA'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### FB
+```{r, fig.height=6, fig.width=8}
+#'COL1A1' plus 'FBLN1' ('MMP2', 'PDGFRA')
+
+FeaturePlot(TMA, features = c('COL1A1', 'FBLN1', 'MMP2', 'PDGFRA'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=12, fig.width=24}
+
+VlnPlot(TMA, features = c('COL1A1', 'FBLN1', 'MMP2', 'PDGFRA'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### B cells
+```{r, fig.height=9, fig.width=8}
+# 'CD19', 'CD22', 'CD79A', 'CR2', 'MS4A1', 'PAX5'
+
+FeaturePlot(TMA, features = c('CD19', 'CD22', 'CD79A', 'CR2', 'MS4A1', 'PAX5'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('CD19', 'CD22', 'CD79A', 'CR2', 'MS4A1', 'PAX5'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### B/T cells
+```{r, fig.height=18, fig.width=8}
+# 'CD19', 'CD22', 'CD79A', 'CR2', 'MS4A1', 'PAX5' plus 'CD3D' ('CD3E', 'TRAC', 'CD3G', 'CD5')
+
+FeaturePlot(TMA, features = c('CD19', 'CD22', 'CD79A', 'CR2', 'MS4A1', 'PAX5', 'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=32, fig.width=24}
+
+VlnPlot(TMA, features = c('CD19', 'CD22', 'CD79A', 'CR2', 'MS4A1', 'PAX5', 'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### T cells, CD8
+```{r, fig.height=9, fig.width=8}
+# 'CD8A' plus 'CD3D' ('CD3E', 'TRAC', 'CD3G', 'CD5')
+
+FeaturePlot(TMA, features = c('CD8A' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('CD8A' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### T cells, CD4
+```{r, fig.height=9, fig.width=8}
+# 'CD4' plus 'CD3D' ('CD3E', 'TRAC', 'CD3G', 'CD5')
+
+FeaturePlot(TMA, features = c('CD4' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('CD4' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### T cells, proliferating
+```{r, fig.height=9, fig.width=8}
+# 'MKi67' plus 'CD3D' ('CD3E', 'TRAC', 'CD3G', 'CD5')
+
+FeaturePlot(TMA, features = c('MKI67' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('MKi67' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Treg
+```{r, fig.height=9, fig.width=8}
+# 'FOXP3' plus 'CD3D' ('CD3E', 'TRAC', 'CD3G', 'CD5')
+
+FeaturePlot(TMA, features = c('FOXP3', 'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('FOXP3', 'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### NK cells
+```{r, fig.height=12, fig.width=8}
+# 'NKG7' plus 'GNLY' ('GZMB', 'FGFBP2', 'KLRF1', 'IL2RB', 'TBX21')
+
+FeaturePlot(TMA, features = c('NKG7' ,'GNLY' ,'GZMB', 'FGFBP2', 'KLRF1', 'IL2RB', 'TBX21'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=24, fig.width=24}
+
+VlnPlot(TMA, features = c('NKG7' ,'GNLY' ,'GZMB', 'FGFBP2', 'KLRF1', 'IL2RB', 'TBX21'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### NK-T cells
+```{r, fig.height=12, fig.width=8}
+# 'NKG7' plus 'CD3D' ('CD3E', 'TRAC', 'CD3G', 'CD8A', 'CD5')
+
+FeaturePlot(TMA, features = c('NKG7' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD8A', 'CD5'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=24, fig.width=24}
+
+VlnPlot(TMA, features = c('NKG7' ,'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD8A', 'CD5'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Mac
+```{r, fig.height=9, fig.width=8}
+# 'CD14' plus 'C1QC' ('CD163', 'FCGR3A', 'CD68')
+
+FeaturePlot(TMA, features = c('CD14' ,'C1QC', 'CD163', 'FCGR3A', 'CD68'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('CD14' ,'C1QC', 'CD163', 'FCGR3A', 'CD68'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### DC
+```{r, fig.height=15, fig.width=8}
+# 'CD1C' plus 'HLA-DRA' (or all HLA-Dxxx molecules, 'IRF4', 'MYBL2')
+
+# Find all HLA-Dxxx molecules
+HLA_genes <- rownames(TMA)[grepl('HLA-D', rownames(TMA))]
+HLA_genes <- HLA_genes[! HLA_genes %in% c('HLA-DRA')]
+
+FeaturePlot(TMA, features = c('CD1C' ,'HLA-DRA', HLA_genes, 'IRF4', 'MYBL2'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=30, fig.width=24}
+
+VlnPlot(TMA, features = c('CD1C' ,'HLA-DRA', HLA_genes, 'IRF4', 'MYBL2'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### LH-DC
+```{r, fig.height=9, fig.width=8}
+# 'FCER1A' plus 'CD1C' ('CD1E', 'CSF2RA', 'IL23A', 'CXCL8')
+
+FeaturePlot(TMA, features = c('FCER1A', 'CD1C', 'CD1E', 'CSF2RA', 'IL23A', 'CXCL8'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=18, fig.width=24}
+
+VlnPlot(TMA, features = c('FCER1A', 'CD1C', 'CD1E', 'CSF2RA', 'IL23A', 'CXCL8'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### pDC
+```{r, fig.height=6, fig.width=8}
+# 'CLEC4C' plus 'GZMB' ('NRP1', 'BST2')
+
+FeaturePlot(TMA, features = c('CLEC4C', 'GZMB', 'NRP1', 'BST2'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=12, fig.width=24}
+
+VlnPlot(TMA, features = c('CLEC4C', 'GZMB', 'NRP1', 'BST2'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Granulocytes
+```{r, fig.height=6, fig.width=8}
+# 'CTSG' plus 'LMNA' ('TNFRSF9', 'IL2RA')
+
+FeaturePlot(TMA, features = c('CTSG', 'LMNA', 'TNFRSF9', 'IL2RA'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=12, fig.width=24}
+
+VlnPlot(TMA, features = c('CTSG', 'LMNA', 'TNFRSF9', 'IL2RA'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Mast cells
+```{r, fig.heigt = 2, fig.width=8}
+# 'KIT' plus 'FCER1A'
+
+FeaturePlot(TMA, features = c('KIT', 'FCER1A'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=6, fig.width=24}
+
+VlnPlot(TMA, features = c('KIT', 'FCER1A'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Glandular cells
+```{r, fig.heigt = 6, fig.width=8}
+# 'MUC1' and 'CCL28' ('IDO2', 'MUC4')
+
+FeaturePlot(TMA, features = c('MUC1', 'CCL28', 'IDO2', 'MUC4'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=12, fig.width=24}
+
+VlnPlot(TMA, features = c('MUC1', 'CCL28', 'IDO2', 'MUC4'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+### Ductal cells</font>
+```{r, fig.heigt = 6, fig.width=8}
+# 'MMP7' and 'CCL28' ('MUC1')
+
+FeaturePlot(TMA, features = c('MMP7', 'CCL28', 'MUC1'), order = TRUE,
+            cols = c('lightgrey', 'red'), ncol = 2)
+
+```
+
+```{r, fig.height=12, fig.width=24}
+
+VlnPlot(TMA, features = c('MMP7', 'CCL28', 'MUC1'), pt.size = 0, group.by = 'seurat_clusters', ncol = 2)
+
+
+```
+
+## <font color="#7393B3"><u>Differential expression per cluster</u></font>
+
+```{r}
+
+# Find markers for every cluster compared to all remaining cells, report only the positive ones
+TMA_markers <- FindAllMarkers(TMA, 
+                               test.use = "MAST",
+                               only.pos = TRUE, 
+                               min.pct = 0.25, 
+                               logfc.threshold = 0.25,
+                               verbose = TRUE)
+
+#write.csv(TMA_markers, file = "TMA_markers.csv")
+
+```
+
+```{r, fig.height=10.2, fig.width=10}
+
+#TMA_markers <- read.csv("TMA_markers.csv")
+
+library(dplyr)
+TMA_markers.top5markers <- TMA_markers %>% 
+  group_by(cluster) %>% 
+  top_n(n = 5, wt = avg_log2FC)
+
+library(ggpubr)
+TMA_markers.top5markers <- as.data.frame(TMA_markers.top5markers)
+
+# Plot top marker genes per cell type
+for(cluster in unique(TMA_markers.top5markers$cluster)){
+  # List of cells for current cluster
+  cells_cluster <- WhichCells(TMA, idents = cluster)
+  
+  # List of features for current cluster
+  features_cluster <- TMA_markers.top5markers[TMA_markers.top5markers$cluster == cluster, "gene"]
+  
+  # Determine the number of features available
+  n_features <- length(features_cluster)
+  
+  if(n_features > 0){
+    
+    # Create a list to store the plots
+    plots <- list()
+    
+    # First plot: DimPlot
+    plots[[1]] <- DimPlot(TMA, cells.highlight = cells_cluster,
+                          cols.highlight = "#2f5653", sizes.highlight = 1) + 
+                  ggtitle(paste0(cluster)) + 
+                  NoLegend()
+    
+    # Loop through features_cluster and add FeaturePlot to the plots list
+    for(i in seq_len(n_features)){
+      plots[[i + 1]] <- FeaturePlot(TMA, features = c(features_cluster[i]), 
+                                    order = TRUE, cols = c('lightgrey', 'red'))
+    }
+    
+    # Determine grid layout based on the number of plots
+    ncol <- 2
+    nrow <- ceiling((n_features + 1) / ncol)
+    
+    # Print all plots in one grid
+    print(ggarrange(plotlist = plots, ncol = ncol, nrow = nrow))
+  }
+}
+
+
+
+```
+
+## <font color="#7393B3"><u>Dotplot for all marker genes</u></font>
+
+```{r, fig.height=12, fig.width=35}
+
+list_features <- list("Melanoma cells" = c('CDK2', 'CDH1', 'ERBB3'),
+                      "Keratinocytes" = c('S100A9', 'MYC', 'ZBED2', 'SOX2', 'SOX9', 'TP63', 'LAMB3'),
+                      "Neuronal cells" = c('PPARGC1A', 'NCAM1', 'PTK2', 'FGF1', 'FGFR2', 'FGFR3', 'VEGFC'),
+                      "LEC & VEC" = "PECAM1",
+                      "LEC" = c('FLT4', 'PROX1', 'PDPN'),
+                      "VEC" = c('VWF', 'PLVAP', 'CLEC14A', 'FLT1'), 
+                      "vSMC" = c('ACTA2', 'DES', 'NDUFA4L2', 'ADAMTS4', 'ITGA1', 'ANGPT1', 'PDGFA'),
+                      "FB" = c('COL1A1', 'FBLN1', 'MMP2', 'PDGFRA'),
+                      "B cells" = c('CD19', 'CD22', 'CD79A', 'CR2', 'MS4A1', 'PAX5'),
+                      "T cells" = c('CD8A' ,'CD4', 'CD3D' ,'CD3E', 'TRAC', 'CD3G', 'CD5'),
+                      "Treg" = c('FOXP3'), 
+                      "NK" = c('NKG7' ,'GNLY', 'FGFBP2', 'KLRF1', 'IL2RB', 'TBX21'),
+                      "Mac" = c('CD14' ,'C1QC', 'CD163', 'FCGR3A', 'CD68'),
+                      "DC" = c('CD1C' ,'HLA-DRA', 'IRF4', 'MYBL2'),
+                      "LH-DC" = c('CD1E', 'CSF2RA', 'IL23A', 'CXCL8', "HLA-DQA1", "HLA-DRB1", "HLA-DMA",  "HLA-DPA1", "HLA-DPB1"), 
+                      "pDC" = c('CLEC4C', 'NRP1', 'BST2'),
+                      "Mast cells" = c('FCER1A'),
+                      "Granulocytes" = c('CTSG', 'LMNA', 'TNFRSF9', 'IL2RA'),
+                      "Glandular & ductal cells" = c("MUC1", 'CCL28'),
+                      "Glandular cells" = c('IDO2', 'MUC4'),
+                      "Ductal cells" = c('MMP7'),
+                      "Proliferating" = c('MKI67'),
+                      "Melanoma & Mast cells" = "KIT",
+                      "NK & pDC" = c('GZMB'))
+
+                                             
+
+DotPlot(TMA, features = list_features, scale.by = "size") + RotatedAxis() +
+    scale_x_discrete(position = "bottom") +  # Moves the feature names to the bottom
+    theme(strip.text.x.top = element_text(angle = 90, hjust = 0, vjust = 1))  # Rotates feature labels for better readability
+
+
+
+```
+
+## <font color="#7393B3"><u>Preliminary annotation</u></font>
+
+```{r, eval = FALSE}
+
+DimPlot(TMA, group.by = "annot_coarse", cols = colors)
+
+```
+
+```{r, fig.width=12, fig.height=8}
+# Preliminary annotation
+
+###### Add annotations #######
+
+colors <- DiscretePalette_scCustomize(num_colors = 19, palette = "ditto_seq")
+
+DimPlot(TMA, group.by = "cell_type_level0", cols = colors, label = TRUE, repel = TRUE, label.box = TRUE) + ggtitle("Preliminary annotation")
+
+saveRDS(TMA, "TMA_preliminary_annot_level0.rds")
+
+```
